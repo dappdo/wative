@@ -1,0 +1,17 @@
+{
+  // Emit config for the package consumers install: compiles src/ -> dist/ as ESM
+  // with .d.ts (declaration:true, unlike a leaf app — consumers typecheck against
+  // these under nodenext). Same nodenext module settings as the typecheck config,
+  // so the `.js` import specifiers the source already uses resolve against the
+  // emitted files. The `exports` map points every subpath at dist/.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test"]
+}

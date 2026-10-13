@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.tgz
+# Throwaway workspaces (e.g. the one examples/quickstart.mts writes).
+.wative2*

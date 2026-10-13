@@ -1,0 +1,75 @@
+{
+  "name": "wative",
+  "version": "2.0.2",
+  "description": "A Node.js toolkit for scaffolding wallet-dispatch applications leveraging wative-core.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dappdo/wative.git"
+  },
+  "homepage": "https://github.com/dappdo/wative#readme",
+  "bugs": "https://github.com/dappdo/wative/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./bootstrap": {
+      "types": "./dist/bootstrap.d.ts",
+      "default": "./dist/bootstrap.js"
+    },
+    "./preflight": {
+      "types": "./dist/preflight.d.ts",
+      "default": "./dist/preflight.js"
+    },
+    "./session": {
+      "types": "./dist/core/session.d.ts",
+      "default": "./dist/core/session.js"
+    },
+    "./sendMath": {
+      "types": "./dist/core/sendMath.d.ts",
+      "default": "./dist/core/sendMath.js"
+    },
+    "./paths": {
+      "types": "./dist/core/paths.d.ts",
+      "default": "./dist/core/paths.js"
+    },
+    "./passwordStrength": {
+      "types": "./dist/core/passwordStrength.d.ts",
+      "default": "./dist/core/passwordStrength.js"
+    },
+    "./container": {
+      "types": "./dist/core/container.d.ts",
+      "default": "./dist/core/container.js"
+    },
+    "./errors": {
+      "types": "./dist/core/errors.d.ts",
+      "default": "./dist/core/errors.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "examples"
+  ],
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test --test-timeout=30000 --test-force-exit test/*.test.ts",
+    "verify": "pnpm run typecheck && pnpm run build && pnpm run test"
+  },
+  "dependencies": {
+    "wative-core": "2.5.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

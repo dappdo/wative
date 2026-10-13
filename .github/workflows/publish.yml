@@ -1,0 +1,40 @@
+# Publishes `wative` to npm via Trusted Publishing (OIDC) — no NPM_TOKEN.
+# The Trusted Publisher on npmjs.com must be bound to THIS repo + this exact
+# filename (publish.yml); it then allows a direct `npm publish` with no token and
+# no 2FA step. Push a tag matching the package version (e.g. `v2.0.2`) to publish;
+# npm's publish-time scan makes it installable a few minutes later. With the
+# allowance off (stage-only), npm rejects the publish with 403 "OIDC permission
+# denied for this action".
+#
+# Unlike a prebuilt package, this repo does NOT commit dist/ — it is built from
+# source in CI (`pnpm run verify`) before publishing, so the tarball carries fresh,
+# tested output. A token is deliberately NOT set: it would force the legacy path
+# and bypass OIDC.
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # required: lets the job mint the OIDC token npm trusts
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest # must be GitHub-hosted; self-hosted is unsupported
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # uses the `packageManager` field (pnpm@11.9.0)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run verify # typecheck + build (dist/) + tests — gates the publish
+      # Trusted publishing needs npm >= 11.5.1. dist/ is already built by verify, so
+      # skip the package lifecycle scripts (which would re-invoke the pnpm build).
+      - run: npm install -g npm@latest
+      - run: npm publish --ignore-scripts

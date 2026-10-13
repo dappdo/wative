@@ -1,0 +1,10 @@
+# Single package — no workspace members. Disable the build scripts of optional
+# native deps and exempt the pinned wative-core from any release-age hold, so
+# `pnpm install` / `pnpm run` stay non-interactive and deterministic and
+# wative-core resolves to a single store entry (one type identity, no dual copy).
+allowBuilds:
+  bufferutil: false
+  esbuild: false
+  utf-8-validate: false
+minimumReleaseAgeExclude:
+  - wative-core@2.5.7
