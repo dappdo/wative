@@ -37,6 +37,14 @@
 import { ChainClient, HybridProvider, HybridProviderV3, Network, Workspace, argon2BackendInfo } from "wative-core";
 import type { Address, AssetRef, DestinationReport, EvmTransaction, SimulationResult, SvmTransaction, TransactionStatus, TransactionTracker, TransferPayload, TransferRequest } from "wative-core";
 import { errorCode, safeMessage } from "./errors.js";
+import { buildSiweMessage } from "./siwe.js";
+import { deriveNetworkSlug, finalizeNetworkSlug } from "./slug.js";
+import { isHexData, isTokenAddressForVm, tokenAddressHint } from "./validators.js";
+
+// Re-export the pure kernels extracted to dual-env modules (siwe/slug/validators),
+// so `wative/node/session` keeps exposing them; they are ALSO the `wative/browser`
+// surface, reachable without pulling this Node-only module.
+export { buildSiweMessage, deriveNetworkSlug, finalizeNetworkSlug, isHexData, isTokenAddressForVm, tokenAddressHint };
 import { SVM_FEE_LAMPORTS } from "./sendMath.js";
 
 export type SessionStatus = "closed" | "locked" | "unlocked";
@@ -1142,41 +1150,7 @@ export async function moveNetwork(slug: string, toIndex: number): Promise<Accoun
   }
 }
 
-/**
- * Derive a network slug from its display name — the single source of truth
- * shared by the add form (for the up-front duplicate check) and `addNetwork`
- * (which re-derives it), so the two never drift. Lower-cases, collapses every
- * non-`[a-z0-9]` run to a single `-`, and trims leading/trailing `-`. The result
- * may still be too short / malformed for the library's slug rule (4–64,
- * `^[a-z][a-z0-9_-]*[a-z0-9]$`, MEASURED); the form validates that before this
- * is ever reached, and `addNetwork` surfaces any residual library refusal.
- */
-export function deriveNetworkSlug(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-/**
- * The persisted slug for a custom network, derived from the display name.
- *
- * 🚨 wative-core floors the slug at 4 chars (MEASURED: `Invalid slug "ab": must be
- * 4-64 chars, start with [a-z], end with [a-z0-9], middle [a-z0-9_-]`). The UI
- * allows a 3–16 char NAME (3 is the library's own floor on
- * `Network.name`, so the name cannot be shorter), so a short name's base slug is
- * auto-extended with the chain id to clear the slug floor — name `OPx` on chain 10
- * → slug `opx-10`. A base already ≥4 chars is kept verbatim, so every existing
- * network and slug is unchanged. The add form guarantees the base starts with a
- * letter and carries ≥2 alphanumerics, so `${base}-${chainId}` is always ≥4 and
- * matches the library's `^[a-z][a-z0-9_-]{2,62}[a-z0-9]$`; `addNetwork` is still
- * the final gate for anything that slips through (e.g. a duplicate).
- */
-export function finalizeNetworkSlug(name: string, chainId: number): string {
-  const base = deriveNetworkSlug(name);
-  return base.length >= 4 ? base : `${base}-${chainId}`;
-}
+// deriveNetworkSlug / finalizeNetworkSlug: extracted to ./slug.js (imported + re-exported near the top).
 
 /** The explicit-full add-network form's collected input. */
 export interface NetworkInput {
@@ -1466,22 +1440,7 @@ export interface NewToken {
   readonly decimals: number;
 }
 
-/**
- * Whether `address` is a valid token identifier for `vm`: an EVM contract is
- * `0x` + 40 hex; an SVM (SPL) mint is a base58 pubkey (32–44 chars). The ONE
- * source of truth for token-address shape — `addTokenToNetwork` AND the UI
- * add-form both validate through it, so they cannot drift (a drift is exactly
- * what left the form rejecting SPL mints after the session layer learned to
- * accept them).
- */
-export function isTokenAddressForVm(vm: "evm" | "svm", address: string): boolean {
-  return vm === "evm" ? /^0x[0-9a-fA-F]{40}$/.test(address.trim()) : /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address.trim());
-}
-
-/** The matching "what a token address should look like" message for `vm`. */
-export function tokenAddressHint(vm: "evm" | "svm"): string {
-  return vm === "evm" ? "An EVM contract address is 0x followed by 40 hex characters." : "A Solana token mint is a base58 address (32-44 characters).";
-}
+// isTokenAddressForVm / tokenAddressHint: extracted to ./validators.js (re-exported near the top).
 
 /**
  * Add a custom token to a SPECIFIC network — a consumer's settings
@@ -2075,11 +2034,7 @@ export interface SendIntent {
   readonly raw?: { readonly data: string };
 }
 
-/** A `0x`-prefixed, even-length hex calldata (`0x` alone = no data). */
-const HEX_DATA = /^0x([0-9a-fA-F]{2})*$/;
-export function isHexData(data: string): boolean {
-  return HEX_DATA.test(data);
-}
+// isHexData (+ the HEX_DATA regex): extracted to ./validators.js (re-exported near the top).
 
 /**
  * The lowered transfer as plain data — powers the inferred-type header and
@@ -2883,36 +2838,7 @@ export function previewSignIn(accountSlug: string, walletId: number, fields: Siw
   }
 }
 
-/**
- * The EIP-4361 message body, reconstructed field-by-field. Exported so its exact
- * byte layout can be pinned by a test — do not edit the shape without re-running
- * it, since that byte-for-byte fidelity is the only thing that makes a preview
- * safe to show as "what you are signing".
- */
-export function buildSiweMessage(p: {
-  readonly domain: string;
-  readonly address: string;
-  readonly statement?: string;
-  readonly uri: string;
-  readonly version: string;
-  readonly chainId: number;
-  readonly nonce: string;
-  readonly issuedAt: string;
-}): string {
-  const lines: string[] = [
-    `${p.domain} wants you to sign in with your Ethereum account:`,
-    p.address,
-    "",
-  ];
-  if (p.statement !== undefined && p.statement !== "") lines.push(p.statement);
-  lines.push("");
-  lines.push(`URI: ${p.uri}`);
-  lines.push(`Version: ${p.version}`);
-  lines.push(`Chain ID: ${p.chainId}`);
-  lines.push(`Nonce: ${p.nonce}`);
-  lines.push(`Issued At: ${p.issuedAt}`);
-  return lines.join("\n");
-}
+// buildSiweMessage: extracted to ./siwe.js (imported + re-exported near the top).
 
 // ── EXPORT PRIVATE KEY ──────────────────────────────────────────────────────
 
