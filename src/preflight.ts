@@ -37,6 +37,7 @@ import { safeMessage } from "./core/errors.js";
 import { assessPassword } from "./core/passwordStrength.js";
 import { defaultWorkspacePath, maskPath, type MaskedPath } from "./core/paths.js";
 import { createWorkspace, openLocked, unlock } from "./core/session.js";
+import { stepSecretInput } from "./core/secretInput.js";
 
 /** What the pre-flight hands the caller once a workspace is open + unlocked. */
 export interface OpenedWorkspace {
@@ -266,11 +267,8 @@ function promptLine(question: string, display?: string): Promise<string> {
   });
 }
 
-/** CSI escape sequence (arrow/nav keys, stray bracketed-paste markers like
- * `ESC[200~`): ESC `[`, params, intermediates, a final byte. */
-const CSI_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
-/** A two-byte escape (ESC + a single `Fe` byte): SS2/SS3, Alt-combos, etc. */
-const TWO_BYTE_ESCAPE = /\u001b[@-_]/g;
+// The escape-scrub regexes + the masked-input reducer now live in
+// ./core/secretInput.js (stepSecretInput), shared with the future browser field.
 
 /**
  * A masked secret prompt on raw-mode stdin. Echoes `*` per code point, handles
@@ -281,10 +279,11 @@ const TWO_BYTE_ESCAPE = /\u001b[@-_]/g;
  * when its frame mounts), so a paste arrives as raw characters — no marker to
  * strip.
  *
- * ⚠️ Scope note: this strips terminal escape sequences (below) but does NOT yet
- * scrub zero-width / bidi invisibles or disclose a removed-count — acceptable
- * here because bracketed paste is off before any frame and the common case is an
- * ASCII password typed, not pasted.
+ * ⚠️ Scope note: the shared `stepSecretInput` reducer strips terminal escape
+ * sequences but does NOT yet scrub zero-width / bidi invisibles or disclose a
+ * removed-count — acceptable here because bracketed paste is off before any frame
+ * and the common case is an ASCII password typed, not pasted. A browser field
+ * reusing the reducer must strengthen the scrub.
  */
 function promptSecret(question: string): Promise<string> {
   return new Promise((resolve) => {
@@ -306,46 +305,29 @@ function promptSecret(question: string): Promise<string> {
       stdin.pause();
     };
     const onData = (buf: Buffer): void => {
-      // Strip terminal escape sequences before reading (the raw-input scrub
-      // discipline): an arrow key is `ESC[D`, whose trailing `[D` are otherwise
-      // printable and would be injected into the password. scrubChunk() is not
-      // used wholesale because it also strips the line-editing control bytes
-      // (Backspace, Ctrl+C/D) this reader must see.
-      const chunk = decoder.write(buf).replace(CSI_SEQUENCE, "").replace(TWO_BYTE_ESCAPE, "");
-      for (const ch of chunk) {
-        if (ch === "\r" || ch === "\n") {
+      // The keystroke semantics (escape-scrub, backspace-by-code-point, and the
+      // Enter / Ctrl+C / Ctrl+D terminators) live in the pure `stepSecretInput`
+      // reducer; this glue decodes the chunk and applies the display effects to
+      // stdout. `value` stays a local that nothing outlives.
+      const step = stepSecretInput(value, decoder.write(buf));
+      value = step.value;
+      for (const effect of step.effects) {
+        if (effect.kind === "echo") {
+          out.write(effect.text);
+        } else if (effect.kind === "backspace") {
+          out.write("\b \b");
+        } else if (effect.kind === "submit" || effect.kind === "end") {
+          // Enter, or Ctrl+D (end-of-input): the value is complete.
           cleanup();
           out.write("\n");
           resolve(value);
           return;
-        }
-        if (ch === "\u0003") {
-          // Ctrl+C — the only way out of the prompt other than answering.
+        } else {
+          // cancel — Ctrl+C, the only way out of the prompt other than answering.
           cleanup();
           out.write("\n");
           process.exit(130);
         }
-        if (ch === "\u0004") {
-          // Ctrl+D — treat as end-of-input for this prompt.
-          cleanup();
-          out.write("\n");
-          resolve(value);
-          return;
-        }
-        if (ch === "\u007f" || ch === "\b") {
-          if (value.length > 0) {
-            // Drop one CODE POINT, not one UTF-16 unit, so backspacing an astral
-            // character (emoji) leaves no orphaned lone surrogate.
-            value = [...value].slice(0, -1).join("");
-            out.write("\b \b");
-          }
-          continue;
-        }
-        if (ch >= " ") {
-          value += ch;
-          out.write("*");
-        }
-        // Any other control character is ignored.
       }
     };
     stdin.on("data", onData);
