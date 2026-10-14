@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildSiweMessage } from "../src/core/session.js";
+import { buildSiweMessage } from "../src/core/siwe.js";
 
 const ADDR = "0x1111111111111111111111111111111111111111";
 const BASE = {

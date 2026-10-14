@@ -99,6 +99,21 @@ test("only viewport wallets are queued; the first batch of 5 loads, the rest wai
   store.dispose();
 });
 
+test("a loaded balance carries its byAsset payload through get() and snapshot()", async () => {
+  const h = makeHarness();
+  const store = createBalanceStore("acct", { read: h.read, sleep: h.sleep, batchSize: 5 });
+  const byAsset = new Map();
+  store.setViewport([0]);
+  h.settle(0, { kind: "ready", byAsset });
+  await drain();
+  const entry = store.get(0) as { status: string; byAsset?: unknown };
+  assert.equal(entry.status, "loaded");
+  assert.equal(entry.byAsset, byAsset, "get() carries the exact byAsset Map (the remap preserves the payload)");
+  const snap = store.snapshot().get(0) as { status: string; byAsset?: unknown } | undefined;
+  assert.equal(snap?.byAsset, byAsset, "snapshot() carries the same byAsset");
+  store.dispose();
+});
+
 test("a wallet outside the viewport is never read (lazy, viewport-only)", () => {
   const h = makeHarness();
   const store = createBalanceStore("acct", { read: h.read, sleep: h.sleep, batchSize: 5 });
