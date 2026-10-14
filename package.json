@@ -126,7 +126,7 @@
     "verify": "pnpm run typecheck && pnpm run typecheck:browser && pnpm run build && pnpm run smoke:browser && pnpm run test"
   },
   "dependencies": {
-    "wative-core": "2.5.7"
+    "wative-core": "2.5.8"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
