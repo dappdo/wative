@@ -80,6 +80,36 @@ test("the aggregate wative/browser barrel re-exports the portable surface", asyn
   }
 });
 
+test("each focused subpath resolves to the RIGHT module (carries its signature export)", async () => {
+  // Resolution alone (above) can't catch a key pointing at the wrong dist file;
+  // assert a signature export each subpath must carry.
+  const SIGNATURE: Record<string, string> = {
+    "/node/session": "createWorkspace",
+    "/node/bootstrap": "bootstrap",
+    "/node/preflight": "runPreflight",
+    "/node/balances": "createBalanceStore",
+    "/node/nonces": "createNonceStore",
+    "/node/paths": "maskPath",
+    "/node/container": "inspect",
+    "/core": "Workspace",
+    "/core/node": "HybridProvider",
+    "/browser/siwe": "buildSiweMessage",
+    "/browser/validators": "isHexData",
+    "/browser/slug": "deriveNetworkSlug",
+    "/browser/secretInput": "stepSecretInput",
+    "/browser/balances": "createBalanceStore",
+    "/browser/nonces": "createNonceStore",
+    "/viewport": "createViewportStore",
+    "/sendMath": "evmFees",
+    "/passwordStrength": "assessPassword",
+    "/errors": "safeMessage",
+  };
+  for (const [sub, name] of Object.entries(SIGNATURE)) {
+    const mod = (await import(`${PKG}${sub}`)) as Record<string, unknown>;
+    assert.ok(name in mod, `${PKG}${sub} must resolve to a module exporting ${name}`);
+  }
+});
+
 test("every removed 2.x subpath is no longer exported", async () => {
   for (const sub of REMOVED) {
     const spec = `${PKG}${sub}`;

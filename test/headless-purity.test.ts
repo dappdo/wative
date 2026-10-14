@@ -16,13 +16,16 @@ import { fileURLToPath } from "node:url";
 
 const SRC = path.resolve(fileURLToPath(import.meta.url), "../../src");
 
-/** The package's headless entrypoints the guard walks. */
-const ROOTS = ["bootstrap.ts", "headless.ts"];
+/** The package's entrypoints the guard walks — every published entry point, so a
+ * forbidden UI import can't hide in one that bootstrap/headless don't reach. */
+const ROOTS = ["index.ts", "bootstrap.ts", "headless.ts", "nodeIndex.ts", "browserIndex.ts"];
 
 /** Bare display/UI packages the package must never import. */
 function isForbiddenPackage(spec: string): boolean {
   return (
     spec === "ink" ||
+    spec.startsWith("ink-") || // the ink ecosystem: ink-text-input, ink-spinner, …
+    spec.startsWith("@inkjs/") || // @inkjs/ui
     spec === "figlet" ||
     spec === "chalk" ||
     spec === "react" ||

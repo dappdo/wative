@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createNonceStore, type NonceValue } from "../src/core/nodeNonceStore.js";
+import { mapNonceRead } from "../src/core/nonceReadMap.js";
 import type { ViewportReader } from "../src/core/viewportStore.js";
 
 type NonceRead = { kind: "loaded"; value: NonceValue } | { kind: "failed" };
@@ -141,4 +142,17 @@ test("dispose aborts in-flight reads and makes the store inert", () => {
   assert.equal(h.callFor(0)?.aborted, true, "dispose aborts in-flight reads");
   store.setViewport(range(5, 10));
   assert.equal(h.callFor(10), undefined, "a disposed store does not read");
+});
+
+test("mapNonceRead: ready->value, na->na, error/loading->failed (the node default-reader mapping)", () => {
+  assert.deepEqual(mapNonceRead({ kind: "ready", value: 42 }), { kind: "loaded", value: { kind: "value", value: 42 } });
+  assert.deepEqual(mapNonceRead({ kind: "na" }), { kind: "loaded", value: { kind: "na" } });
+  assert.deepEqual(mapNonceRead({ kind: "error" }), { kind: "failed" });
+  assert.deepEqual(mapNonceRead({ kind: "loading" }), { kind: "failed" });
+});
+
+test("createNonceStore(slug, network) builds with the default reader (no injected read)", () => {
+  const store = createNonceStore("acct", "sepolia");
+  assert.equal(store.get(0).status, "unstarted", "constructs; no RPC read happens until a viewport is set");
+  store.dispose();
 });

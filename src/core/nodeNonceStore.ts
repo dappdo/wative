@@ -9,6 +9,7 @@
  * `read`, browser-safe) is `wative/browser/nonces` (`core/nonceStore.ts`).
  */
 import { readWalletNonce } from "./session.js";
+import { mapNonceRead } from "./nonceReadMap.js";
 import type { ViewportReader } from "./viewportStore.js";
 import {
   createNonceStore as createPortableNonceStore,
@@ -42,12 +43,6 @@ export interface NonceStoreOptions {
 export function createNonceStore(slug: string, network: string, options: NonceStoreOptions = {}): NonceStore {
   const timeoutMs = options.timeoutMs ?? 12_000;
   const read: ViewportReader<NonceValue> =
-    options.read ??
-    (async (id, signal) => {
-      const result = await readWalletNonce(slug, id, network, { timeoutMs, signal });
-      if (result.kind === "ready") return { kind: "loaded", value: { kind: "value", value: result.value } };
-      if (result.kind === "na") return { kind: "loaded", value: { kind: "na" } };
-      return { kind: "failed" };
-    });
+    options.read ?? (async (id, signal) => mapNonceRead(await readWalletNonce(slug, id, network, { timeoutMs, signal })));
   return createPortableNonceStore({ read, batchSize: options.batchSize, batchDelayMs: options.batchDelayMs, sleep: options.sleep });
 }
