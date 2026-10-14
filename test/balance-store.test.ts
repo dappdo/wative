@@ -114,6 +114,19 @@ test("a loaded balance carries its byAsset payload through get() and snapshot()"
   store.dispose();
 });
 
+test("get() returns a referentially STABLE entry until the underlying state changes", async () => {
+  const h = makeHarness();
+  const store = createBalanceStore("acct", { read: h.read, sleep: h.sleep, batchSize: 5 });
+  store.setViewport([0]);
+  h.settle(0, { kind: "ready", byAsset: new Map() });
+  await drain();
+  const a = store.get(0);
+  const b = store.get(0);
+  assert.equal(a, b, "two get() calls return the SAME object (safe as a useSyncExternalStore getSnapshot)");
+  assert.equal(store.snapshot().get(0), a, "snapshot() shares that same remapped entry");
+  store.dispose();
+});
+
 test("a wallet outside the viewport is never read (lazy, viewport-only)", () => {
   const h = makeHarness();
   const store = createBalanceStore("acct", { read: h.read, sleep: h.sleep, batchSize: 5 });

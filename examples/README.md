@@ -23,7 +23,7 @@ What it shows:
    folder from an existing workspace without a password.
 2. **Create an account** — `createAccount(name, password, mnemonic, networkSlug?)`
    returns the new account's slug. Generate a phrase with `newMnemonic(12)` from
-   `wative-core`; pick a network from `workspaceNetworkChoices()`.
+   `wative/core` (the passthrough, so you depend on `wative` alone); pick a network from `workspaceNetworkChoices()`.
 3. **Read wallets** — `accounts()`, then `walletsFor(slug)` → each wallet's
    `addresses` (`{ vm, network, publicKey }`). Everything is plain data, never a
    live handle.

@@ -40,7 +40,7 @@ Unchanged: `wative`, `wative/core`, `wative/core/node`, `wative/viewport`,
 
 ```ts
 import { createWorkspace, createAccount, accounts, walletsFor } from "wative/node/session";
-import { newMnemonic } from "wative-core";
+import { newMnemonic } from "wative/core";
 
 await createWorkspace("./.wative2", "a-strong-password");          // created + unlocked
 await createAccount("Main", "a-strong-password", newMnemonic(12)); // an HD account
@@ -65,8 +65,9 @@ See [`examples/`](examples/):
 ## API
 
 Start from `wative` (or `wative/node`); the rest of the surface is on focused
-subpath exports, namespaced by environment (`wative/node/*` is Node-only; the
-rest is portable):
+subpath exports, namespaced by environment (`wative/node/*` and `wative/core/node`
+are Node-only; the rest is portable, though `wative/passwordStrength` pulls
+wative-core's browser build):
 
 | Import | What it gives you |
 |---|---|

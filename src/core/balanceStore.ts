@@ -76,6 +76,20 @@ export function createBalanceStore(options: BalanceStoreOptions): BalanceStore {
     sleep: options.sleep,
   });
 
+  // Cache the remapped entry per SOURCE entry object, so `get()`/`snapshot()` return
+  // a STABLE reference until the underlying entry changes. Without this, `get()`
+  // minted a fresh object each call, breaking a consumer wiring
+  // `useSyncExternalStore(subscribe, () => store.get(id))` per row (React's
+  // "getSnapshot should be cached" infinite loop).
+  const remapCache = new WeakMap<ViewportEntry<AssetBalances>, BalanceEntry>();
+  const remap = (entry: ViewportEntry<AssetBalances>): BalanceEntry => {
+    const cached = remapCache.get(entry);
+    if (cached !== undefined) return cached;
+    const mapped = toBalanceEntry(entry);
+    remapCache.set(entry, mapped);
+    return mapped;
+  };
+
   // Keep a stable remapped snapshot keyed on the inner one, so `useSyncExternalStore`
   // still sees a new reference only when the state changed.
   let srcSnap: ReadonlyMap<number, ViewportEntry<AssetBalances>> | undefined;
@@ -84,12 +98,12 @@ export function createBalanceStore(options: BalanceStoreOptions): BalanceStore {
   return {
     setViewport: (visibleIds, opts) => inner.setViewport(visibleIds, opts),
     refresh: (ids) => inner.refresh(ids),
-    get: (walletId) => toBalanceEntry(inner.get(walletId)),
+    get: (walletId) => remap(inner.get(walletId)),
     snapshot: () => {
       const src = inner.snapshot();
       if (src === srcSnap && outSnap !== undefined) return outSnap;
       srcSnap = src;
-      const mapped: ReadonlyMap<number, BalanceEntry> = new Map(Array.from(src, ([id, entry]) => [id, toBalanceEntry(entry)]));
+      const mapped: ReadonlyMap<number, BalanceEntry> = new Map(Array.from(src, ([id, entry]) => [id, remap(entry)]));
       outSnap = mapped;
       return mapped;
     },

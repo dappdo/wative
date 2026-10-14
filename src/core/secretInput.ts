@@ -14,14 +14,17 @@
  */
 
 /** CSI escape sequence (arrow/nav keys, stray bracketed-paste markers like
- * `ESC[200~`): ESC `[`, params, intermediates, a final byte. */
-export const CSI_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
-/** A two-byte escape (ESC + a single `Fe` byte): SS2/SS3, Alt-combos, etc. */
-export const TWO_BYTE_ESCAPE = /\u001b[@-_]/g;
+ * `ESC[200~`): ESC `[`, params, intermediates, a final byte. Module-private: a
+ * `/g` regex has a shared `lastIndex`, so exporting it would be a stateful footgun
+ * for a consumer calling `.test()`/`.exec()` — use `scrubEscapes` instead. */
+const CSI_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+/** A two-byte escape (ESC + a single `Fe` byte): SS2/SS3, Alt-combos, etc.
+ * Module-private for the same `/g` `lastIndex` reason as `CSI_SEQUENCE`. */
+const TWO_BYTE_ESCAPE = /\u001b[@-_]/g;
 
 /** Strip the terminal escape sequences a raw-mode reader must not inject into the
- * value. (Node-TTY-sufficient; a browser must add zero-width / bidi / paste
- * scrubbing on top.) */
+ * value — the stable public seam (safe: `.replace` resets `lastIndex`).
+ * (Node-TTY-sufficient; a browser must add zero-width / bidi / paste scrubbing.) */
 export function scrubEscapes(chunk: string): string {
   return chunk.replace(CSI_SEQUENCE, "").replace(TWO_BYTE_ESCAPE, "");
 }

@@ -124,3 +124,17 @@ export function isRetryable(error: unknown): boolean {
       return false;
   }
 }
+
+/**
+ * Strip URLs from free-prose error text before it reaches a consumer.
+ *
+ * 🚨 A balance/simulation error's library prose can embed the RPC endpoint, and a
+ * hosted provider (Alchemy/Infura/…) carries its API KEY in the URL path. Unlike
+ * thrown errors (which go through `safeMessage`'s no-interpolation allowlist),
+ * these arrive as result-struct free prose designed to be displayed — so collapse
+ * any `http(s)://…` run to `<rpc-url>` before handing it on. Everything else is
+ * left intact so the message still says what failed.
+ */
+export function scrubUrls(text: string): string {
+  return text.replace(/https?:\/\/\S+/gi, "<rpc-url>");
+}

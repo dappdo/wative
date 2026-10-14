@@ -6,10 +6,11 @@
 
 wative's own Node-only modules now live under the `wative/node` family, so the
 public surface signals which parts require the Node runtime (filesystem, process
-lifecycle, and `wative-core`'s `node`-condition provider classes). A pure-browser
-surface (`wative/browser`) is planned next; the portable helpers already run in
-either environment. This is an import-path change (consumers currently track
-`wative` via a local link and adapt their imports); no runtime behavior changed.
+lifecycle, and `wative-core`'s `node`-condition provider classes). The pure-browser
+surface (`wative/browser`) ships in this same release (see Added); the portable
+helpers already run in either environment. This is an import-path change (consumers
+currently track `wative` via a local link and adapt their imports); no runtime
+behavior changed.
 
 Rewrite these imports:
 

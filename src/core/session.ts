@@ -36,7 +36,7 @@
  */
 import { ChainClient, HybridProvider, HybridProviderV3, Network, Workspace, argon2BackendInfo } from "wative-core";
 import type { Address, AssetRef, DestinationReport, EvmTransaction, SimulationResult, SvmTransaction, TransactionStatus, TransactionTracker, TransferPayload, TransferRequest } from "wative-core";
-import { errorCode, safeMessage } from "./errors.js";
+import { errorCode, safeMessage, scrubUrls } from "./errors.js";
 import { buildSiweMessage } from "./siwe.js";
 import { deriveNetworkSlug, finalizeNetworkSlug } from "./slug.js";
 import { isHexData, isTokenAddressForVm, tokenAddressHint } from "./validators.js";
@@ -1691,7 +1691,7 @@ async function readAddressBalances(address: Address, timeoutMs: number, signal?:
     const byAsset = new Map(
       balances.map((balance) => [
         Number(balance.assetId),
-        { raw: balance.raw, decimals: Number(balance.decimals), readError: balance.readError },
+        { raw: balance.raw, decimals: Number(balance.decimals), readError: balance.readError === undefined ? undefined : scrubUrls(balance.readError) },
       ]),
     );
     return { kind: "ready", byAsset };
@@ -2232,11 +2232,11 @@ function assetToken(asset: SendIntent["asset"]): string | undefined {
 }
 
 function summarizeSim(sim: SimulationResult): SendSimulation {
-  return { success: sim.success, error: sim.error, gasUsed: sim.gasUsed, computeUnits: sim.computeUnitsConsumed };
+  return { success: sim.success, error: sim.error === undefined ? undefined : scrubUrls(sim.error), gasUsed: sim.gasUsed, computeUnits: sim.computeUnitsConsumed };
 }
 
 function summarizeDestination(report: DestinationReport): SendDestination {
-  return { action: report.action, code: report.code, warnings: report.warnings.map((w) => w.detail), rpcChecked: report.rpcChecked };
+  return { action: report.action, code: report.code, warnings: report.warnings.map((w) => scrubUrls(w.detail)), rpcChecked: report.rpcChecked };
 }
 
 export async function prepareSend(intent: SendIntent): Promise<PreparedSend> {

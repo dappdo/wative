@@ -21,7 +21,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
-import { newMnemonic } from "wative-core";
+import { newMnemonic } from "wative/core";
 import { inspect } from "wative/node/container";
 import {
   createWorkspace,

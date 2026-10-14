@@ -18,7 +18,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
-import { newMnemonic } from "wative-core";
+import { newMnemonic } from "wative/core";
 import { inspect } from "wative/node/container";
 import {
   createWorkspace,
