@@ -25,18 +25,6 @@ helpers already run in either environment. This is an import-path change (consum
 currently track `wative` via a local link and adapt their imports); no runtime
 behavior changed.
 
-Rewrite these imports:
-
-| Removed | New (2.1.3) |
-|---|---|
-| `wative/bootstrap` | `wative/node/bootstrap` (or the aggregate `wative/node`, or the root `wative`) |
-| `wative/preflight` | `wative/node/preflight` |
-| `wative/session` | `wative/node/session` |
-| `wative/balances` | `wative/node/balances` |
-| `wative/nonces` | `wative/node/nonces` |
-| `wative/paths` | `wative/node/paths` |
-| `wative/container` | `wative/node/container` |
-
 **Unchanged:** `wative` (root), `wative/viewport`, `wative/sendMath`,
 `wative/passwordStrength`, `wative/errors`.
 

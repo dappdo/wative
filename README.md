@@ -1,6 +1,6 @@
 # wative
 
-A Node.js toolkit for scaffolding wallet-dispatch applications on top of
+A ready-to-use toolkit for scaffolding wallet-dispatch applications on top of
 [`wative-core`](https://www.npmjs.com/package/wative-core): open a workspace, manage
 accounts and wallets, and sign or send transactions. Pure logic, no UI — mount your
 own interface on it, or drive it headless.
@@ -17,24 +17,6 @@ own interface on it, or drive it headless.
 ```sh
 pnpm add wative      # pulls wative-core as a dependency
 ```
-
-## Migrating from 2.x
-
-`2.1.3` moves wative's **Node-only** surface under the `wative/node` family (see
-[`CHANGELOG.md`](CHANGELOG.md)). Rewrite these imports:
-
-| 2.x | 2.1.3 |
-|---|---|
-| `wative/bootstrap` | `wative/node/bootstrap` (or the aggregate `wative/node`, or the root `wative`) |
-| `wative/preflight` | `wative/node/preflight` |
-| `wative/session` | `wative/node/session` |
-| `wative/balances` | `wative/node/balances` |
-| `wative/nonces` | `wative/node/nonces` |
-| `wative/paths` | `wative/node/paths` |
-| `wative/container` | `wative/node/container` |
-
-Unchanged: `wative`, `wative/core`, `wative/core/node`, `wative/viewport`,
-`wative/sendMath`, `wative/passwordStrength`, `wative/errors`.
 
 ## Quick start
 
