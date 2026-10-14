@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createBalanceStore, type BalanceReader } from "../src/core/balanceStore.js";
+import { createBalanceStore, type BalanceReader } from "../src/core/nodeBalanceStore.js";
 import type { WalletBalances } from "../src/core/session.js";
 
 type ReadResult = Extract<WalletBalances, { kind: "ready" | "error" }>;

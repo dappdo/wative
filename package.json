@@ -40,12 +40,12 @@
       "default": "./dist/core/session.js"
     },
     "./node/balances": {
-      "types": "./dist/core/balanceStore.d.ts",
-      "default": "./dist/core/balanceStore.js"
+      "types": "./dist/core/nodeBalanceStore.d.ts",
+      "default": "./dist/core/nodeBalanceStore.js"
     },
     "./node/nonces": {
-      "types": "./dist/core/nonceStore.d.ts",
-      "default": "./dist/core/nonceStore.js"
+      "types": "./dist/core/nodeNonceStore.d.ts",
+      "default": "./dist/core/nodeNonceStore.js"
     },
     "./node/paths": {
       "types": "./dist/core/paths.d.ts",

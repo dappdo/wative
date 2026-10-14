@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createNonceStore, type NonceValue } from "../src/core/nonceStore.js";
+import { createNonceStore, type NonceValue } from "../src/core/nodeNonceStore.js";
 import type { ViewportReader } from "../src/core/viewportStore.js";
 
 type NonceRead = { kind: "loaded"; value: NonceValue } | { kind: "failed" };
