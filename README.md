@@ -52,13 +52,16 @@ Start from `wative/bootstrap`; the rest of the surface is on focused subpath exp
 | `wative/preflight` | the plain-stdout open/unlock flow + the `OpenedWorkspace` type |
 | `wative/session` | the workspace gateway — accounts, wallets, networks, balances, send/sign |
 | `wative/balances` | `createBalanceStore(slug)` — a viewport-aware, cancellable, caching balance loader for large accounts (see below) |
+| `wative/nonces` | `createNonceStore(slug, network)` — the same loader for a wallet list's pending-nonce column (EVM-only; off-network wallets load as `na`) |
+| `wative/viewport` | `createViewportStore(opts)` — the generic viewport/batch/cancel/cache scheduler the two stores above are built on; parameterise it with your own `read` |
 | `wative/sendMath` · `wative/paths` · `wative/passwordStrength` · `wative/container` · `wative/errors` | focused helpers (chain math, path masking, password strength, the container probe, error messages) |
 
-### Loading balances for large accounts
+### Loading a large wallet list
 
-`wative/session` exposes `fillBalances` (read a set of wallets, concurrency-bounded)
-and `readWalletBalances` (one wallet, cancellable via an `AbortSignal`). For a list
-UI over hundreds of wallets, prefer `wative/balances`:
+`wative/session` exposes `fillBalances` / `fillNonces` (read a set of wallets,
+concurrency-bounded) and the cancellable single reads `readWalletBalances` /
+`readWalletNonce` (one wallet, abortable via an `AbortSignal`). For a list UI over
+hundreds of wallets, prefer the stores, which load only what is on screen:
 
 ```ts
 import { createBalanceStore } from "wative/balances";
@@ -73,6 +76,8 @@ It loads only the wallets you declare visible, in batches, following the cursor;
 wallets that scroll away are dequeued or have their in-flight read aborted; loaded
 and failed results are cached, so re-entering the viewport costs nothing. Call
 `store.refresh(ids)` to force a re-read and `store.dispose()` when the view unmounts.
+`createNonceStore(slug, network)` is the same, for the nonce column; both share the
+generic `createViewportStore` from `wative/viewport`.
 
 A static test keeps the package free of any terminal-UI dependency, so a headless
 consumer pulls none in. Mount a UI on `bootstrap`, or run headless — see the examples.

@@ -1968,6 +1968,43 @@ export async function fillNonces(
   await Promise.all(Array.from({ length: Math.max(1, Math.floor(opts.concurrency)) }, worker));
 }
 
+/**
+ * Read ONE wallet's pending nonce on `network` — the single-wallet, CANCELLABLE
+ * read behind the nonce store (`wative/nonces`). Resolves `ready` (the integer),
+ * `na` (no EVM address on this network → no nonce, and NO RPC call) or `error`;
+ * rejects with `BalanceReadAborted` only when `signal` aborts. EVM-only,
+ * handle-free and read-only, exactly like `fillNonces`/`readNonce`.
+ */
+export async function readWalletNonce(
+  slug: string,
+  walletId: number,
+  network: string,
+  opts: { readonly timeoutMs: number; readonly signal?: AbortSignal },
+): Promise<{ readonly kind: "ready"; readonly value: number } | { readonly kind: "na" } | { readonly kind: "error" }> {
+  const ws = vault;
+  if (ws === undefined || ws.closed || ws.locked) return { kind: "error" };
+  let address: Address | undefined;
+  try {
+    const account = ws.accounts.bySlug(slug as never) ?? undefined;
+    if (account === undefined) return { kind: "error" };
+    const wallet = account.wallets.byId(walletId) ?? undefined;
+    if (wallet === undefined) return { kind: "error" };
+    address = wallet.addresses.find((candidate) => String((candidate.network as { slug: unknown }).slug) === network);
+  } catch {
+    return { kind: "error" };
+  }
+  if (address === undefined || String(address.vm) !== "evm") return { kind: "na" };
+  const target = address;
+  const client = new ChainClient(target.network);
+  try {
+    const nonce = await raceRead({ confirm: () => client.getTransactionCount(String(target.publicKey), "pending"), abort: () => {} }, opts.timeoutMs, opts.signal);
+    return { kind: "ready", value: Number(nonce) };
+  } catch (error) {
+    if (error instanceof BalanceReadAborted) throw error;
+    return { kind: "error" };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Send / Sign — the build → prefill → simulate → screen → sign → send → track
 // flow, wrapped handle-free. 🚨 This follows the measured wative-core send/sign

@@ -1,6 +1,6 @@
 {
   "name": "wative",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "A Node.js toolkit for scaffolding wallet-dispatch applications leveraging wative-core.",
   "license": "MIT",
   "repository": {
@@ -30,6 +30,14 @@
     "./balances": {
       "types": "./dist/core/balanceStore.d.ts",
       "default": "./dist/core/balanceStore.js"
+    },
+    "./viewport": {
+      "types": "./dist/core/viewportStore.d.ts",
+      "default": "./dist/core/viewportStore.js"
+    },
+    "./nonces": {
+      "types": "./dist/core/nonceStore.d.ts",
+      "default": "./dist/core/nonceStore.js"
     },
     "./sendMath": {
       "types": "./dist/core/sendMath.d.ts",

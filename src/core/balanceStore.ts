@@ -1,19 +1,19 @@
 /**
- * A viewport-aware, cancellable, caching balance-loading store — the stateful
- * layer above the single-wallet read (`readWalletBalances`). A consumer (a TUI
- * grid, a headless crawler) tells the store which wallets are visible; the store
- * lazily loads just those, in small batches with a delay between them, following
- * the cursor, cancelling reads for wallets that scroll away, and caching the
- * results so re-entering the viewport costs nothing.
+ * A viewport-aware, cancellable, caching balance-loading store — the balance
+ * specialisation of the generic `createViewportStore` scheduler, reading each
+ * wallet's DEFAULT-network balances. A consumer (a TUI grid, a headless crawler)
+ * tells the store which wallets are visible; the store lazily loads just those,
+ * in small batches with a delay between them, following the cursor, cancelling
+ * reads for wallets that scroll away, and caching the results so re-entering the
+ * viewport costs nothing.
  *
- * It is UI-free: no rendering, no colour, no terminal. The consumer subscribes
- * and renders from `snapshot()`/`get()`.
- *
- * The scheduler is driven through two injectable seams — `read` (the per-wallet
- * read) and `sleep` (the inter-batch delay) — so the whole state machine is
- * testable without a live RPC or real timers.
+ * It is UI-free: the consumer subscribes and renders from `snapshot()`/`get()`.
+ * The scheduler is tested via `test/balance-store.test.ts` (and the shared core
+ * directly); the real network read is exercised by the consumer's integration
+ * tests.
  */
 import { readWalletBalances, type WalletBalances } from "./session.js";
+import { createViewportStore, type ViewportEntry, type ViewportStatus } from "./viewportStore.js";
 
 /** One wallet's per-asset balances (the library's `ready` map). */
 export type AssetBalances = Extract<WalletBalances, { kind: "ready" }>["byAsset"];
@@ -24,7 +24,7 @@ export type AssetBalances = Extract<WalletBalances, { kind: "ready" }>["byAsset"
  * - `loading` — a read is in flight,
  * - `loaded` — read succeeded; `byAsset` holds the balances (cached),
  * - `failed` — the read failed; terminal until an explicit `refresh` (cached). */
-export type BalanceStatus = "unstarted" | "queued" | "loading" | "loaded" | "failed";
+export type BalanceStatus = ViewportStatus;
 
 /** One wallet's store entry. `byAsset` is present iff `status === "loaded"`. */
 export type BalanceEntry =
@@ -70,177 +70,47 @@ export interface BalanceStore {
   dispose(): void;
 }
 
-const UNSTARTED: BalanceEntry = { status: "unstarted" };
+/** Map a generic viewport entry (payload `byAsset`) to the public `BalanceEntry`
+ * shape, so the `wative/balances` API keeps its `byAsset` field. */
+function toBalanceEntry(entry: ViewportEntry<AssetBalances>): BalanceEntry {
+  return entry.status === "loaded" ? { status: "loaded", byAsset: entry.value } : entry;
+}
 
 /** Create a balance store for one account `slug`. The default reader reads each
  * wallet's DEFAULT-network balances over RPC; the real network read is exercised
  * by the consumer's integration tests, while this store's scheduling is tested
  * with an injected `read`. */
 export function createBalanceStore(slug: string, options: BalanceStoreOptions = {}): BalanceStore {
-  const batchSize = Math.max(1, Math.floor(options.batchSize ?? 5));
-  const batchDelayMs = Math.max(0, options.batchDelayMs ?? 250);
   const timeoutMs = options.timeoutMs ?? 12_000;
-  const read: BalanceReader = options.read ?? ((id, signal) => readWalletBalances(slug, id, { timeoutMs, signal }));
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const balanceRead: BalanceReader = options.read ?? ((id, signal) => readWalletBalances(slug, id, { timeoutMs, signal }));
+  const inner = createViewportStore<AssetBalances>({
+    read: async (id, signal) => {
+      const result = await balanceRead(id, signal);
+      return result.kind === "ready" ? { kind: "loaded", value: result.byAsset } : { kind: "failed" };
+    },
+    batchSize: options.batchSize,
+    batchDelayMs: options.batchDelayMs,
+    sleep: options.sleep,
+  });
 
-  const entries = new Map<number, BalanceEntry>();
-  const inflight = new Map<number, AbortController>();
-  const listeners = new Set<() => void>();
-  let viewport: readonly number[] = [];
-  let viewportSet = new Set<number>();
-  let anchor: number | undefined;
-  let direction: "up" | "down" | undefined;
-  let pumping = false;
-  let disposed = false;
-  let snapshotCache: ReadonlyMap<number, BalanceEntry> | undefined;
-
-  const statusOf = (id: number): BalanceStatus => entries.get(id)?.status ?? "unstarted";
-
-  const notify = (): void => {
-    for (const listener of [...listeners]) listener();
-  };
-  const setEntry = (id: number, entry: BalanceEntry): void => {
-    entries.set(id, entry);
-    snapshotCache = undefined;
-    notify();
-  };
-
-  /** Abort an in-flight read (if any) and reset the entry to `unstarted`. */
-  const cancel = (id: number): void => {
-    const controller = inflight.get(id);
-    if (controller !== undefined) {
-      inflight.delete(id);
-      controller.abort();
-    }
-    setEntry(id, UNSTARTED);
-  };
-
-  /** The viewport ids in crawl order: from the anchor (cursor) outward, biased to
-   * the travel direction so the window loads ahead of the cursor first. */
-  const crawlOrder = (): readonly number[] => {
-    if (viewport.length === 0) return [];
-    let at = anchor !== undefined ? viewport.indexOf(anchor) : 0;
-    if (at < 0) at = 0;
-    const ordered: number[] = [];
-    const push = (i: number): void => {
-      const id = viewport[i];
-      if (id !== undefined) ordered.push(id);
-    };
-    if (direction === "up") {
-      for (let i = at; i >= 0; i--) push(i);
-      for (let i = at + 1; i < viewport.length; i++) push(i);
-    } else {
-      for (let i = at; i < viewport.length; i++) push(i);
-      for (let i = at - 1; i >= 0; i--) push(i);
-    }
-    return ordered;
-  };
-
-  /** The in-viewport wallets still needing a read, in crawl order. */
-  const orderedPending = (): readonly number[] =>
-    crawlOrder().filter((id) => {
-      const status = statusOf(id);
-      return status === "unstarted" || status === "queued";
-    });
-
-  const readOne = async (id: number): Promise<void> => {
-    if (disposed || !viewportSet.has(id)) return;
-    const status = statusOf(id);
-    if (status === "loading" || status === "loaded" || status === "failed") return;
-    const controller = new AbortController();
-    inflight.set(id, controller);
-    setEntry(id, { status: "loading" });
-    let result: Extract<WalletBalances, { kind: "ready" | "error" }> | undefined;
-    try {
-      result = await read(id, controller.signal);
-    } catch {
-      // A rejection is either the abort we asked for, or a reader failure. The
-      // `signal.aborted` check below tells them apart; `result` stays undefined.
-    } finally {
-      if (inflight.get(id) === controller) inflight.delete(id);
-    }
-    if (disposed) return;
-    if (result !== undefined) {
-      // A COMPLETED read is valid data — cache it even if the wallet has since
-      // scrolled away (req: loaded is cached; re-entry never re-queues).
-      setEntry(id, result.kind === "ready" ? { status: "loaded", byAsset: result.byAsset } : { status: "failed" });
-      return;
-    }
-    // No result: aborted before completion → leave as `cancel` set it
-    // (`unstarted`); a non-abort rejection → `failed`.
-    if (controller.signal.aborted) return;
-    setEntry(id, { status: "failed" });
-  };
-
-  /** Drain the queue in batches, re-targeting the viewport each round, until no
-   * visible wallet needs a read. Re-entrant-safe: a second call while pumping is
-   * a no-op (the running loop picks up viewport changes on its own). */
-  const pump = async (): Promise<void> => {
-    if (pumping || disposed) return;
-    pumping = true;
-    try {
-      for (;;) {
-        if (disposed) break;
-        const pending = orderedPending();
-        if (pending.length === 0) break;
-        await Promise.all(pending.slice(0, batchSize).map((id) => readOne(id)));
-        if (disposed) break;
-        if (orderedPending().length > 0) await sleep(batchDelayMs);
-      }
-    } finally {
-      pumping = false;
-    }
-  };
+  // Keep a stable remapped snapshot keyed on the inner one, so `useSyncExternalStore`
+  // still sees a new reference only when the state changed.
+  let srcSnap: ReadonlyMap<number, ViewportEntry<AssetBalances>> | undefined;
+  let outSnap: ReadonlyMap<number, BalanceEntry> | undefined;
 
   return {
-    setViewport(visibleIds, opts) {
-      if (disposed) return;
-      const next = [...visibleIds];
-      const nextSet = new Set(next);
-      // Wallets that LEFT the viewport: dequeue (queued) or abort (loading).
-      for (const id of viewport) {
-        if (nextSet.has(id)) continue;
-        const status = statusOf(id);
-        if (status === "queued") setEntry(id, UNSTARTED);
-        else if (status === "loading") cancel(id);
-      }
-      // Newly-visible wallets not already terminal/in-progress: queue them.
-      for (const id of next) {
-        if (statusOf(id) === "unstarted") setEntry(id, { status: "queued" });
-      }
-      viewport = next;
-      viewportSet = nextSet;
-      anchor = opts?.anchor;
-      direction = opts?.direction;
-      void pump();
+    setViewport: (visibleIds, opts) => inner.setViewport(visibleIds, opts),
+    refresh: (ids) => inner.refresh(ids),
+    get: (walletId) => toBalanceEntry(inner.get(walletId)),
+    snapshot: () => {
+      const src = inner.snapshot();
+      if (src === srcSnap && outSnap !== undefined) return outSnap;
+      srcSnap = src;
+      const mapped: ReadonlyMap<number, BalanceEntry> = new Map(Array.from(src, ([id, entry]) => [id, toBalanceEntry(entry)]));
+      outSnap = mapped;
+      return mapped;
     },
-    refresh(ids) {
-      if (disposed) return;
-      for (const id of ids) {
-        const controller = inflight.get(id);
-        if (controller !== undefined) {
-          inflight.delete(id);
-          controller.abort();
-        }
-        setEntry(id, viewportSet.has(id) ? { status: "queued" } : UNSTARTED);
-      }
-      void pump();
-    },
-    get(walletId) {
-      return entries.get(walletId) ?? UNSTARTED;
-    },
-    snapshot() {
-      return (snapshotCache ??= new Map(entries));
-    },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    dispose() {
-      disposed = true;
-      for (const controller of inflight.values()) controller.abort();
-      inflight.clear();
-      listeners.clear();
-    },
+    subscribe: (listener) => inner.subscribe(listener),
+    dispose: () => inner.dispose(),
   };
 }
