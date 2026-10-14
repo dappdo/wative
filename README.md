@@ -20,10 +20,10 @@ pnpm add wative      # pulls wative-core as a dependency
 
 ## Migrating from 2.x
 
-`3.0.0` moves wative's **Node-only** surface under the `wative/node` family (see
+`2.1.3` moves wative's **Node-only** surface under the `wative/node` family (see
 [`CHANGELOG.md`](CHANGELOG.md)). Rewrite these imports:
 
-| 2.x | 3.0.0 |
+| 2.x | 2.1.3 |
 |---|---|
 | `wative/bootstrap` | `wative/node/bootstrap` (or the aggregate `wative/node`, or the root `wative`) |
 | `wative/preflight` | `wative/node/preflight` |

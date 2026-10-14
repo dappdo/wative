@@ -1,5 +1,5 @@
 /**
- * Resolution contract for the `wative/node` move (3.0.0).
+ * Resolution contract for the `wative/node` move (2.1.3).
  *
  * Every other test imports `../src/...` by relative path, so none of them exercise
  * the package `exports` map — the one thing this release changes. This test is the
@@ -73,7 +73,6 @@ test("the aggregate wative/browser barrel re-exports the portable surface", asyn
     "isHexData",
     "deriveNetworkSlug",
     "stepSecretInput",
-    "assessPassword",
     "errorCode",
     "evmFees",
   ]) {

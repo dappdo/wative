@@ -4,7 +4,9 @@
  * balance/nonce caching stores (injected-reader factories), the pure interaction
  * kernels extracted from the Node layer (the SIWE message builder, input-shape
  * validators, network-slug derivation, the masked-secret input reducer), and the
- * portable helpers (send math, password strength, error mapping).
+ * portable helpers (send math, error mapping). (`passwordStrength` is kept OUT of
+ * this aggregate — see the note by the exports below — and lives at its own
+ * `wative/passwordStrength` subpath.)
  *
  * Like `wative/node`, this is an aggregation manifest, NOT a wrapper: every line
  * is an identity-preserving re-export of a value-adding wative module, with no
@@ -28,5 +30,10 @@ export * from "./core/validators.js";
 export * from "./core/slug.js";
 export * from "./core/secretInput.js";
 export * from "./core/sendMath.js";
-export * from "./core/passwordStrength.js";
 export * from "./core/errors.js";
+// NOTE: `passwordStrength` is intentionally NOT re-exported from this aggregate.
+// It value-imports wative-core (`PasswordPolicy`), whose browser build statically
+// pulls ethers/@solana — so re-exporting it here would make `import "wative/browser"`
+// drag that whole bundle in (and hard-fail under strict ESM on `ws`). It stays
+// available at its own `wative/passwordStrength` subpath for consumers who already
+// bundle wative-core's browser build.

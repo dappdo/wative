@@ -121,8 +121,9 @@
     "prepare": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "typecheck:browser": "tsc -p tsconfig.browser.json",
+    "smoke:browser": "node --conditions=browser scripts/smoke-browser.mjs",
     "test": "node --import tsx --test --test-timeout=30000 --test-force-exit test/*.test.ts",
-    "verify": "pnpm run typecheck && pnpm run typecheck:browser && pnpm run build && pnpm run test"
+    "verify": "pnpm run typecheck && pnpm run typecheck:browser && pnpm run build && pnpm run smoke:browser && pnpm run test"
   },
   "dependencies": {
     "wative-core": "2.5.7"

@@ -8,12 +8,16 @@
   // that is supposed to be portable but accidentally imports a Node builtin, uses
   // the process lifecycle, or pulls a node-only wative-core binding fails HERE.
   //
-  // Scope: the type-CLEAN portable modules only. The balance/nonce stores are
-  // runtime-portable (their `WalletBalances` import is type-only, erased under
-  // verbatimModuleSyntax), but that type still resolves THROUGH the Node-only
-  // `session` module, which cannot type-check under the browser condition — so the
-  // stores are covered by runtime resolution (test/node-exports.test.ts), not this
-  // type gate.
+  // Scope: the type-CLEAN portable modules. `nonceStore` IS included (it imports
+  // only `viewportStore`, no `session`/`WalletBalances`). `balanceStore` and the
+  // `browserIndex` barrel are the only portable modules left out: `balanceStore`
+  // type-imports `WalletBalances`, which resolves THROUGH the Node-only `session`
+  // module (session value-imports HybridProvider, absent from wative-core's browser
+  // build), so it cannot type-check under the browser condition — and `browserIndex`
+  // transitively pulls it. Those two are covered instead by the `smoke:browser`
+  // runtime step in `verify` (a real `node --conditions=browser` import of the whole
+  // browser surface), which catches an actual Node/wative-core runtime leak that a
+  // Node-condition import test cannot.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
@@ -29,6 +33,7 @@
     "src/core/siwe.ts",
     "src/core/validators.ts",
     "src/core/slug.ts",
-    "src/core/secretInput.ts"
+    "src/core/secretInput.ts",
+    "src/core/nonceStore.ts"
   ]
 }
