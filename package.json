@@ -1,6 +1,6 @@
 {
   "name": "wative",
-  "version": "2.1.1",
+  "version": "2.1.3",
   "description": "A Node.js toolkit for scaffolding wallet-dispatch applications leveraging wative-core.",
   "license": "MIT",
   "repository": {
@@ -23,45 +23,49 @@
       "types": "./dist/coreNodePassthrough.d.ts",
       "default": "./dist/coreNodePassthrough.js"
     },
-    "./bootstrap": {
+    "./node": {
+      "types": "./dist/nodeIndex.d.ts",
+      "default": "./dist/nodeIndex.js"
+    },
+    "./node/bootstrap": {
       "types": "./dist/bootstrap.d.ts",
       "default": "./dist/bootstrap.js"
     },
-    "./preflight": {
+    "./node/preflight": {
       "types": "./dist/preflight.d.ts",
       "default": "./dist/preflight.js"
     },
-    "./session": {
+    "./node/session": {
       "types": "./dist/core/session.d.ts",
       "default": "./dist/core/session.js"
     },
-    "./balances": {
+    "./node/balances": {
       "types": "./dist/core/balanceStore.d.ts",
       "default": "./dist/core/balanceStore.js"
+    },
+    "./node/nonces": {
+      "types": "./dist/core/nonceStore.d.ts",
+      "default": "./dist/core/nonceStore.js"
+    },
+    "./node/paths": {
+      "types": "./dist/core/paths.d.ts",
+      "default": "./dist/core/paths.js"
+    },
+    "./node/container": {
+      "types": "./dist/core/container.d.ts",
+      "default": "./dist/core/container.js"
     },
     "./viewport": {
       "types": "./dist/core/viewportStore.d.ts",
       "default": "./dist/core/viewportStore.js"
     },
-    "./nonces": {
-      "types": "./dist/core/nonceStore.d.ts",
-      "default": "./dist/core/nonceStore.js"
-    },
     "./sendMath": {
       "types": "./dist/core/sendMath.d.ts",
       "default": "./dist/core/sendMath.js"
     },
-    "./paths": {
-      "types": "./dist/core/paths.d.ts",
-      "default": "./dist/core/paths.js"
-    },
     "./passwordStrength": {
       "types": "./dist/core/passwordStrength.d.ts",
       "default": "./dist/core/passwordStrength.js"
-    },
-    "./container": {
-      "types": "./dist/core/container.d.ts",
-      "default": "./dist/core/container.js"
     },
     "./errors": {
       "types": "./dist/core/errors.d.ts",
@@ -71,7 +75,8 @@
   "files": [
     "dist",
     "src",
-    "examples"
+    "examples",
+    "CHANGELOG.md"
   ],
   "packageManager": "pnpm@11.9.0",
   "engines": {

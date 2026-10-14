@@ -22,7 +22,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 
 import { newMnemonic } from "wative-core";
-import { inspect } from "wative/container";
+import { inspect } from "wative/node/container";
 import {
   createWorkspace,
   openLocked,
@@ -38,7 +38,7 @@ import {
   prepareSend,
   confirmSend,
   type SendIntent,
-} from "wative/session";
+} from "wative/node/session";
 
 const WS = path.resolve(".wative2-funded-demo");
 const WALLET_COUNT = 20;
@@ -49,7 +49,7 @@ const SVM_EACH = 2_000_000n; //            0.002 SOL per recipient (above rent)
 const DISTRIBUTE_TO = [1, 2, 3, 4, 5, 6] as const;
 
 // ── tiny interactive helpers (a real app would use a hardened reader; see the
-//    masked prompt in `wative/preflight`) ───────────────────────────────────────
+//    masked prompt in `wative/node/preflight`) ──────────────────────────────────
 function ask(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => rl.question(question, (a) => (rl.close(), resolve(a.trim()))));

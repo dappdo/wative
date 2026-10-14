@@ -1,6 +1,6 @@
 /**
  * A viewport-aware, cancellable, caching read store — the generic scheduler
- * behind `wative/balances` and `wative/nonces`. A consumer tells it which items
+ * behind `wative/node/balances` and `wative/node/nonces`. A consumer tells it which items
  * are visible; it lazily reads just those, in small batches with a delay between
  * them, following the cursor, cancelling reads for items that scroll away, and
  * caching the results so re-entering the viewport costs nothing.
@@ -64,8 +64,8 @@ export interface ViewportStore<L> {
 
 const UNSTARTED = { status: "unstarted" } as const;
 
-/** Create a viewport store over a `read`. The concrete `wative/balances` and
- * `wative/nonces` stores are thin wrappers that fix `L` and wire the real read;
+/** Create a viewport store over a `read`. The concrete `wative/node/balances` and
+ * `wative/node/nonces` stores are thin wrappers that fix `L` and wire the real read;
  * this scheduler is what both are tested through. */
 export function createViewportStore<L>(options: ViewportStoreOptions<L>): ViewportStore<L> {
   const { read } = options;

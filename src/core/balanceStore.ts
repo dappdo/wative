@@ -71,7 +71,7 @@ export interface BalanceStore {
 }
 
 /** Map a generic viewport entry (payload `byAsset`) to the public `BalanceEntry`
- * shape, so the `wative/balances` API keeps its `byAsset` field. */
+ * shape, so the `wative/node/balances` API keeps its `byAsset` field. */
 function toBalanceEntry(entry: ViewportEntry<AssetBalances>): BalanceEntry {
   return entry.status === "loaded" ? { status: "loaded", byAsset: entry.value } : entry;
 }

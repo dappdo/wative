@@ -1753,7 +1753,7 @@ async function readAddressBalances(address: Address, timeoutMs: number, signal?:
  * owns the store and the window; a late result for a scrolled-away wallet simply
  * overwrites that wallet's cache entry (keyed by id), so a late result is never
  * corrupting. For eager cancellation (stop feeding a dead RPC the moment a wallet
- * scrolls away) pass the optional `signal`; the stateful `wative/balances` store
+ * scrolls away) pass the optional `signal`; the stateful `wative/node/balances` store
  * drives exactly that. Disabling/locking is irrelevant — addresses are public, so
  * balances read whether or not key material is unlocked.
  */
@@ -1825,7 +1825,7 @@ export async function fillBalances(
 
 /**
  * Read ONE wallet's DEFAULT-network balances — the single-wallet, CANCELLABLE
- * read behind the balance store (`wative/balances`). Resolves `ready`/`error`;
+ * read behind the balance store (`wative/node/balances`). Resolves `ready`/`error`;
  * rejects with `BalanceReadAborted` only when `signal` aborts. Handle-free and
  * lock-agnostic like `fillBalances` (addresses are public). A wallet with no
  * address on the default network resolves `ready` with an empty map (nothing to
@@ -1970,7 +1970,7 @@ export async function fillNonces(
 
 /**
  * Read ONE wallet's pending nonce on `network` — the single-wallet, CANCELLABLE
- * read behind the nonce store (`wative/nonces`). Resolves `ready` (the integer),
+ * read behind the nonce store (`wative/node/nonces`). Resolves `ready` (the integer),
  * `na` (no EVM address on this network → no nonce, and NO RPC call) or `error`;
  * rejects with `BalanceReadAborted` only when `signal` aborts. EVM-only,
  * handle-free and read-only, exactly like `fillNonces`/`readNonce`.

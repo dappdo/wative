@@ -7,8 +7,11 @@ own interface on it, or drive it headless.
 
 ## Requirements
 
-- **Node.js ≥ 22.12.** Node only: it uses the filesystem and `wative-core`'s Node
-  provider, so there is no browser build.
+- **Node.js ≥ 22.12.** The `wative/node` surface uses the filesystem and
+  `wative-core`'s Node provider, so it is Node-only; a pure-browser surface
+  (`wative/browser`) is planned. The portable helpers (`wative/viewport`,
+  `wative/sendMath`, `wative/passwordStrength`, `wative/errors`) already run in
+  either environment.
 
 ## Install
 
@@ -16,10 +19,28 @@ own interface on it, or drive it headless.
 pnpm add wative      # pulls wative-core as a dependency
 ```
 
+## Migrating from 2.x
+
+`3.0.0` moves wative's **Node-only** surface under the `wative/node` family (see
+[`CHANGELOG.md`](CHANGELOG.md)). Rewrite these imports:
+
+| 2.x | 3.0.0 |
+|---|---|
+| `wative/bootstrap` | `wative/node/bootstrap` (or the aggregate `wative/node`, or the root `wative`) |
+| `wative/preflight` | `wative/node/preflight` |
+| `wative/session` | `wative/node/session` |
+| `wative/balances` | `wative/node/balances` |
+| `wative/nonces` | `wative/node/nonces` |
+| `wative/paths` | `wative/node/paths` |
+| `wative/container` | `wative/node/container` |
+
+Unchanged: `wative`, `wative/core`, `wative/core/node`, `wative/viewport`,
+`wative/sendMath`, `wative/passwordStrength`, `wative/errors`.
+
 ## Quick start
 
 ```ts
-import { createWorkspace, createAccount, accounts, walletsFor } from "wative/session";
+import { createWorkspace, createAccount, accounts, walletsFor } from "wative/node/session";
 import { newMnemonic } from "wative-core";
 
 await createWorkspace("./.wative2", "a-strong-password");          // created + unlocked
@@ -44,27 +65,31 @@ See [`examples/`](examples/):
 
 ## API
 
-Start from `wative/bootstrap`; the rest of the surface is on focused subpath exports:
+Start from `wative` (or `wative/node`); the rest of the surface is on focused
+subpath exports, namespaced by environment (`wative/node/*` is Node-only; the
+rest is portable):
 
 | Import | What it gives you |
 |---|---|
-| `wative` · `wative/bootstrap` | `bootstrap(entrypoint)` — arms the process lifecycle, opens + unlocks a workspace, and hands it to your code (a UI, or a headless script) |
-| `wative/preflight` | the plain-stdout open/unlock flow + the `OpenedWorkspace` type |
-| `wative/session` | the workspace gateway — accounts, wallets, networks, balances, send/sign |
-| `wative/balances` | `createBalanceStore(slug)` — a viewport-aware, cancellable, caching balance loader for large accounts (see below) |
-| `wative/nonces` | `createNonceStore(slug, network)` — the same loader for a wallet list's pending-nonce column (EVM-only; off-network wallets load as `na`) |
-| `wative/viewport` | `createViewportStore(opts)` — the generic viewport/batch/cancel/cache scheduler the two stores above are built on; parameterise it with your own `read` |
-| `wative/sendMath` · `wative/paths` · `wative/passwordStrength` · `wative/container` · `wative/errors` | focused helpers (chain math, path masking, password strength, the container probe, error messages) |
+| `wative/core` · `wative/core/node` | a transparent, identity-preserving pass-through to the `wative-core` object (root) and its Node backend registration — depend on `wative` alone and still reach the full core toolkit |
+| `wative` · `wative/node` · `wative/node/bootstrap` | `bootstrap(entrypoint)` — arms the process lifecycle, opens + unlocks a workspace, and hands it to your code (a UI, or a headless script) |
+| `wative/node/preflight` | the plain-stdout open/unlock flow + the `OpenedWorkspace` type |
+| `wative/node/session` | the workspace gateway — accounts, wallets, networks, balances, send/sign |
+| `wative/node/balances` | `createBalanceStore(slug)` — a viewport-aware, cancellable, caching balance loader for large accounts (see below) |
+| `wative/node/nonces` | `createNonceStore(slug, network)` — the same loader for a wallet list's pending-nonce column (EVM-only; off-network wallets load as `na`) |
+| `wative/node/paths` · `wative/node/container` | Node helpers — path masking, the container probe |
+| `wative/viewport` | `createViewportStore(opts)` — the generic viewport/batch/cancel/cache scheduler the two stores above are built on; parameterise it with your own `read` (portable, dual-env) |
+| `wative/sendMath` · `wative/passwordStrength` · `wative/errors` | portable helpers (chain math, password strength, error messages) — dual-env |
 
 ### Loading a large wallet list
 
-`wative/session` exposes `fillBalances` / `fillNonces` (read a set of wallets,
+`wative/node/session` exposes `fillBalances` / `fillNonces` (read a set of wallets,
 concurrency-bounded) and the cancellable single reads `readWalletBalances` /
 `readWalletNonce` (one wallet, abortable via an `AbortSignal`). For a list UI over
 hundreds of wallets, prefer the stores, which load only what is on screen:
 
 ```ts
-import { createBalanceStore } from "wative/balances";
+import { createBalanceStore } from "wative/node/balances";
 
 const store = createBalanceStore(accountSlug); // batchSize 5, 250ms between batches
 store.subscribe(render);                       // re-render on any state change

@@ -19,7 +19,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 import { newMnemonic } from "wative-core";
-import { inspect } from "wative/container";
+import { inspect } from "wative/node/container";
 import {
   createWorkspace,
   openLocked,
@@ -34,7 +34,7 @@ import {
   lock,
   close,
   type SendIntent,
-} from "wative/session";
+} from "wative/node/session";
 
 const WS = path.resolve(".wative2-example");
 const PASSWORD = "demo-password-change-me"; // throwaway only — not a real secret

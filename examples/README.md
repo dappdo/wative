@@ -19,7 +19,7 @@ pnpm exec tsx examples/quickstart.mts --send
 What it shows:
 
 1. **Open** — `createWorkspace(path, password)` on first run; `openLocked(path)` +
-   `unlock(password)` after. `inspect(path)` (from `wative/container`) tells a fresh
+   `unlock(password)` after. `inspect(path)` (from `wative/node/container`) tells a fresh
    folder from an existing workspace without a password.
 2. **Create an account** — `createAccount(name, password, mnemonic, networkSlug?)`
    returns the new account's slug. Generate a phrase with `newMnemonic(12)` from
