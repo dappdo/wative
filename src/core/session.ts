@@ -1669,6 +1669,79 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+/** A read handle: the slice of `Settling` the balance path uses — a confirmable
+ * promise plus a best-effort `abort()` (a no-op after dispatch, per wative-core). */
+type Confirmable<T> = { confirm(): Promise<T>; abort(): void };
+
+/** Thrown by `raceRead`/`readAddressBalances` ONLY when the caller's `signal`
+ * aborts — distinct from a read failure or our timeout, so a caller tells a
+ * cancellation apart from an error (and never reports an aborted read as failed). */
+export class BalanceReadAborted extends Error {
+  constructor() {
+    super("balance read aborted");
+    this.name = "BalanceReadAborted";
+  }
+}
+
+/**
+ * Race a `Settling` read against our own `timeoutMs` AND an optional abort
+ * `signal`. On abort we also call `settling.abort()` (best-effort — it only bites
+ * in the pre-dispatch window; after dispatch it is a no-op) and reject with
+ * `BalanceReadAborted`; on timeout we reject with a timeout error. The caller's
+ * await settles immediately on abort, so a scrolled-away wallet frees its slot at
+ * once. A resolution arriving after we have settled is dropped.
+ */
+function raceRead<T>(settling: Confirmable<T>, ms: number, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (run: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      run();
+    };
+    const onAbort = (): void => {
+      try {
+        settling.abort();
+      } catch {
+        // best-effort: a no-op after dispatch, and may throw on some handles
+      }
+      finish(() => reject(new BalanceReadAborted()));
+    };
+    const timer = setTimeout(() => finish(() => reject(new Error("balance read timed out"))), ms);
+    if (signal?.aborted === true) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    settling.confirm().then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error instanceof Error ? error : new Error(String(error)))),
+    );
+  });
+}
+
+/** Read ONE address's displayed-asset balances, bounded by `timeoutMs` and
+ * cancellable via `signal`. Resolves `ready` (per-asset map) or `error`; rejects
+ * with `BalanceReadAborted` ONLY when aborted. The shared core of `fillBalances`
+ * and `readWalletBalances`. */
+async function readAddressBalances(address: Address, timeoutMs: number, signal?: AbortSignal): Promise<Extract<WalletBalances, { kind: "ready" | "error" }>> {
+  try {
+    const balances = await raceRead(address.refreshBalances(true), timeoutMs, signal);
+    const byAsset = new Map(
+      balances.map((balance) => [
+        Number(balance.assetId),
+        { raw: balance.raw, decimals: Number(balance.decimals), readError: balance.readError },
+      ]),
+    );
+    return { kind: "ready", byAsset };
+  } catch (error) {
+    if (error instanceof BalanceReadAborted) throw error;
+    return { kind: "error" };
+  }
+}
+
 /**
  * Fill the given wallets' DEFAULT-network balances, bounded by `concurrency`,
  * each read wrapped in `timeoutMs`, reporting every state transition via
@@ -1678,9 +1751,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * (only `refreshBalances(displayedOnly)` works; the per-network/per-asset
  * overloads reject) and hands the caller only plain `WalletBalances`. The caller
  * owns the store and the window; a late result for a scrolled-away wallet simply
- * overwrites that wallet's cache entry (keyed by id), so no cross-window
- * corruption and no abort is needed. Disabling/locking is irrelevant — addresses
- * are public, so balances read whether or not key material is unlocked.
+ * overwrites that wallet's cache entry (keyed by id), so a late result is never
+ * corrupting. For eager cancellation (stop feeding a dead RPC the moment a wallet
+ * scrolls away) pass the optional `signal`; the stateful `wative/balances` store
+ * drives exactly that. Disabling/locking is irrelevant — addresses are public, so
+ * balances read whether or not key material is unlocked.
  */
 export async function fillBalances(
   slug: string,
@@ -1689,6 +1764,10 @@ export async function fillBalances(
     readonly concurrency: number;
     readonly timeoutMs: number;
     readonly onUpdate: (walletId: number, state: WalletBalances) => void;
+    /** Optional: aborts the fill. In-flight reads settle at once (freeing their
+     * slots) and emit NOTHING for their wallet; `fillBalances` then RESOLVES
+     * (never rejects — its callers are catch-less `void`). */
+    readonly signal?: AbortSignal;
   },
 ): Promise<void> {
   const ws = vault;
@@ -1716,6 +1795,7 @@ export async function fillBalances(
 
   const worker = async (): Promise<void> => {
     for (;;) {
+      if (opts.signal?.aborted === true) return;
       const id = queue.shift();
       if (id === undefined) return;
       const wallet = wallets.find((candidate) => candidate.id === id);
@@ -1729,21 +1809,48 @@ export async function fillBalances(
       }
       opts.onUpdate(id, { kind: "loading" });
       try {
-        const balances = await withTimeout(address.refreshBalances(true).confirm(), opts.timeoutMs);
-        const byAsset = new Map(
-          balances.map((balance) => [
-            Number(balance.assetId),
-            { raw: balance.raw, decimals: Number(balance.decimals), readError: balance.readError },
-          ]),
-        );
-        opts.onUpdate(id, { kind: "ready", byAsset });
-      } catch {
+        opts.onUpdate(id, await readAddressBalances(address, opts.timeoutMs, opts.signal));
+      } catch (error) {
+        // Aborted (the optional `signal` fired) → stop this worker, emit nothing
+        // for `id` (its caller owns the post-abort state). A real read failure
+        // never reaches here — `readAddressBalances` resolves `error`.
+        if (error instanceof BalanceReadAborted) return;
         opts.onUpdate(id, { kind: "error" });
       }
     }
   };
 
   await Promise.all(Array.from({ length: Math.max(1, Math.floor(opts.concurrency)) }, worker));
+}
+
+/**
+ * Read ONE wallet's DEFAULT-network balances — the single-wallet, CANCELLABLE
+ * read behind the balance store (`wative/balances`). Resolves `ready`/`error`;
+ * rejects with `BalanceReadAborted` only when `signal` aborts. Handle-free and
+ * lock-agnostic like `fillBalances` (addresses are public). A wallet with no
+ * address on the default network resolves `ready` with an empty map (nothing to
+ * read); a missing/closed/locked workspace or unknown account/wallet resolves
+ * `error` (a terminal the caller can refresh), never a stuck `loading`.
+ */
+export async function readWalletBalances(
+  slug: string,
+  walletId: number,
+  opts: { readonly timeoutMs: number; readonly signal?: AbortSignal },
+): Promise<Extract<WalletBalances, { kind: "ready" | "error" }>> {
+  const ws = vault;
+  if (ws === undefined || ws.closed || ws.locked) return { kind: "error" };
+  let address: Address | undefined;
+  try {
+    const account = ws.accounts.bySlug(slug as never) ?? undefined;
+    if (account === undefined) return { kind: "error" };
+    const network = String(account.defaultNetwork);
+    const wallet = account.getWalletList(true).find((candidate) => candidate.id === walletId);
+    address = wallet?.addresses.find((candidate) => String((candidate.network as { slug: unknown }).slug) === network);
+  } catch {
+    return { kind: "error" };
+  }
+  if (address === undefined) return { kind: "ready", byAsset: new Map() };
+  return readAddressBalances(address, opts.timeoutMs, opts.signal);
 }
 
 /** Our own nonce-read timeout: the library's internal one is 30s, which would

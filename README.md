@@ -51,7 +51,28 @@ Start from `wative/bootstrap`; the rest of the surface is on focused subpath exp
 | `wative` · `wative/bootstrap` | `bootstrap(entrypoint)` — arms the process lifecycle, opens + unlocks a workspace, and hands it to your code (a UI, or a headless script) |
 | `wative/preflight` | the plain-stdout open/unlock flow + the `OpenedWorkspace` type |
 | `wative/session` | the workspace gateway — accounts, wallets, networks, balances, send/sign |
+| `wative/balances` | `createBalanceStore(slug)` — a viewport-aware, cancellable, caching balance loader for large accounts (see below) |
 | `wative/sendMath` · `wative/paths` · `wative/passwordStrength` · `wative/container` · `wative/errors` | focused helpers (chain math, path masking, password strength, the container probe, error messages) |
+
+### Loading balances for large accounts
+
+`wative/session` exposes `fillBalances` (read a set of wallets, concurrency-bounded)
+and `readWalletBalances` (one wallet, cancellable via an `AbortSignal`). For a list
+UI over hundreds of wallets, prefer `wative/balances`:
+
+```ts
+import { createBalanceStore } from "wative/balances";
+
+const store = createBalanceStore(accountSlug); // batchSize 5, 250ms between batches
+store.subscribe(render);                       // re-render on any state change
+store.setViewport(visibleWalletIds, { anchor: cursorId, direction: "down" });
+// store.get(id) → { status: "unstarted" | "queued" | "loading" | "loaded" | "failed", byAsset? }
+```
+
+It loads only the wallets you declare visible, in batches, following the cursor;
+wallets that scroll away are dequeued or have their in-flight read aborted; loaded
+and failed results are cached, so re-entering the viewport costs nothing. Call
+`store.refresh(ids)` to force a re-read and `store.dispose()` when the view unmounts.
 
 A static test keeps the package free of any terminal-UI dependency, so a headless
 consumer pulls none in. Mount a UI on `bootstrap`, or run headless — see the examples.
