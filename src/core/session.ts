@@ -1080,6 +1080,35 @@ export function accountNetworks(slug: string): readonly AccountNetwork[] | undef
 }
 
 /**
+ * The networks an account can be DEFAULTED to / operate on: every workspace
+ * network whose VM the account has an address for, in the workspace's persisted
+ * order. Unlike {@link accountNetworks} (only the networks the account has an
+ * Address BOUND to — kept as-is for its existing callers), this is the full
+ * same-VM set, because an account's single per-VM pubkey is valid on every network
+ * of that VM and reads/sends route by (vm, selectedNetwork) via the keyless client.
+ * This is what a default-network PICKER should offer so the user can switch to ANY
+ * same-VM network after creation (balances/nonce/send then follow the selection).
+ */
+export function selectableNetworks(slug: string): readonly AccountNetwork[] | undefined {
+  const ws = vault;
+  if (ws === undefined || ws.closed || ws.locked) return undefined;
+  const account = ws.accounts.bySlug(slug as never) ?? undefined;
+  if (account === undefined || account.locked) return undefined;
+  // The VMs the account can use = the distinct vms of its derived addresses.
+  const vms = new Set<string>();
+  for (const wallet of account.wallets) {
+    for (const address of wallet.addresses) vms.add(String(address.vm));
+  }
+  if (vms.size === 0) return [];
+  const out: AccountNetwork[] = [];
+  for (const network of ws.networks) {
+    if (!vms.has(String((network as { vm?: unknown }).vm))) continue;
+    out.push({ slug: String(network.slug), name: String(network.name), currencySymbol: String(network.nativeCurrency.symbol) });
+  }
+  return out;
+}
+
+/**
  * The workspace's registered networks, as colour-coded chips for a consumer —
  * all of `ws.networks`, not an account's subset. Empty while
  * closed; readable while locked (the network table is workspace config, not an
@@ -1681,24 +1710,102 @@ function raceRead<T>(settling: Confirmable<T>, ms: number, signal?: AbortSignal)
   });
 }
 
-/** Read ONE address's displayed-asset balances, bounded by `timeoutMs` and
- * cancellable via `signal`. Resolves `ready` (per-asset map) or `error`; rejects
- * with `BalanceReadAborted` ONLY when aborted. The shared core of `fillBalances`
- * and `readWalletBalances`. */
-async function readAddressBalances(address: Address, timeoutMs: number, signal?: AbortSignal): Promise<Extract<WalletBalances, { kind: "ready" | "error" }>> {
+/** The shape the cross-network balance read needs for one displayed asset. */
+interface ReadAsset {
+  readonly id: number;
+  readonly decimals: number;
+  readonly native: boolean;
+  /** ERC-20 contract / SPL mint; null for the native coin. */
+  readonly contractAddress: string | null;
+}
+
+/** The DISPLAYED assets of `networkSlug`, native-first, in the shape the balance
+ * read needs — the same catalogue (displayStatus + native-first order) the grid
+ * columns come from (`catalogueFor`), so the read and the columns never disagree.
+ * Guarded like `catalogueFor`: a rejecting `ws.assets` degrades to `[]`. */
+async function displayedAssetsForRead(networkSlug: string): Promise<readonly ReadAsset[]> {
+  const ws = vault;
+  if (ws === undefined || ws.closed || ws.locked) return [];
   try {
-    const balances = await raceRead(address.refreshBalances(true), timeoutMs, signal);
-    const byAsset = new Map(
-      balances.map((balance) => [
-        Number(balance.assetId),
-        { raw: balance.raw, decimals: Number(balance.decimals), readError: balance.readError === undefined ? undefined : scrubUrls(balance.readError) },
-      ]),
-    );
+    const assets = await ws.assets(networkSlug as never);
+    return assets
+      .filter((asset) => asset.displayStatus)
+      .sort((a, b) => (Boolean(a.native) === Boolean(b.native) ? 0 : a.native ? -1 : 1))
+      .map((asset) => ({
+        id: Number(asset.id),
+        decimals: Number(asset.decimals),
+        native: asset.native === true,
+        contractAddress: asset.native === true ? null : ((asset.contractAddress as string | null) ?? null),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Read a wallet's per-VM PUBKEY's displayed-asset balances on `network` via the
+ * keyless, network-scoped {@link ChainClient} — the SANCTIONED cross-network read.
+ *
+ * 🚨 Core deliberately binds an `Address` to its creation network (the fail-closed
+ * guard in `Address.#readAssetBalance`), and cross-network reads are ChainClient's
+ * job — so default-network switching reads the SAME pubkey on whatever network the
+ * account now defaults to, without needing an Address bound to it. (The clean
+ * `Address.refreshBalances(network)` overload is a deferred stub in core 2.5.8; if
+ * core lands it, swap this one call site behind this helper.)
+ *
+ * Bounded by `timeoutMs`, cancellable via `signal` (resolves fast on abort, a late
+ * read is dropped — same contract as the old address-bound read). Per-asset
+ * `readError` isolation: one failing asset is `raw:0n` + `readError`, never
+ * blanking the rest — mirrors core's own `#readAssetBalance` isolation. The shared
+ * core of `fillBalances` and `readWalletBalances`.
+ */
+async function readBalancesOnNetwork(
+  network: Network,
+  pubkey: string,
+  displayed: readonly ReadAsset[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<Extract<WalletBalances, { kind: "ready" | "error" }>> {
+  const client = new ChainClient(network);
+  const read = async (): Promise<ReadonlyMap<number, { raw: bigint; decimals: number; readError?: string }>> => {
+    const byAsset = new Map<number, { raw: bigint; decimals: number; readError?: string }>();
+    // 🚨 SEQUENTIAL per-asset, on purpose (two load-bearing contracts, both pinned
+    // by balances.test.ts): (1) a wallet read holds exactly ONE in-flight RPC at a
+    // time, so `fillBalances`'s worker-pool size is the TRUE peak concurrency — the
+    // bound that keeps a public RPC from being hammered (parallelising per-asset
+    // would make peak = workers × assets). (2) A transport failure on one asset is
+    // isolated as a per-asset `readError` (raw:0n) and the read still RESOLVES
+    // `ready` — an HTTP-down RPC yields a ready row of `!` cells, NOT a whole-read
+    // error; the whole read errors ONLY on our timeout / abort (via `raceRead`).
+    // This matches the old address-bound `refreshBalances` contract exactly.
+    for (const asset of displayed) {
+      try {
+        const raw = await client.readBalance(pubkey, asset.contractAddress);
+        byAsset.set(asset.id, { raw, decimals: asset.decimals });
+      } catch (error) {
+        byAsset.set(asset.id, { raw: 0n, decimals: asset.decimals, readError: scrubUrls(error instanceof Error ? error.message : String(error)) });
+      }
+    }
+    return byAsset;
+  };
+  try {
+    // `abort: () => {}` — a ChainClient read is not abortable mid-flight, exactly
+    // like `Settling.abort()` post-dispatch; `raceRead` still settles the caller
+    // at once on abort and drops the late result (caller-side cancel frees the slot).
+    const byAsset = await raceRead({ confirm: read, abort: () => {} }, timeoutMs, signal);
     return { kind: "ready", byAsset };
   } catch (error) {
     if (error instanceof BalanceReadAborted) throw error;
     return { kind: "error" };
   }
+}
+
+/** The wallet's per-VM address pubkey for `vm` (the single address of that vm —
+ * core guarantees one per vm), independent of which network it was derived on.
+ * `undefined` when the wallet has no address of that vm. */
+function walletPubkeyForVm(wallet: { readonly addresses: ReadonlyArray<Address> }, vm: string): string | undefined {
+  const address = wallet.addresses.find((candidate) => String(candidate.vm) === vm);
+  return address === undefined ? undefined : String(address.publicKey);
 }
 
 /**
@@ -1738,7 +1845,17 @@ export async function fillBalances(
   // address rejects, which the worker catches and reports as an `error` cell —
   // a balance window never triggers an unlock.
   if (account === undefined) return;
-  const network = String(account.defaultNetwork);
+  const networkSlug = String(account.defaultNetwork);
+  // 🚨 The selected (default) network resolved to a Network — balances read the
+  // wallet's per-VM pubkey on THIS network via the keyless ChainClient, no longer
+  // requiring an Address bound to it (default-network switching). An unknown
+  // default slug (never offered by the picker) → every row empty-but-ready.
+  const network = ws.networks.bySlug(networkSlug as never) ?? undefined;
+  if (network === undefined) {
+    for (const id of walletIds) opts.onUpdate(id, { kind: "ready", byAsset: new Map() });
+    return;
+  }
+  const vm = String((network as { vm?: unknown }).vm);
   // Guarded like the awaited reads below: a throw from this sync setup call
   // would reject the promise, and every caller is a `.catch`-less `void
   // fillBalances(...)`, so the rejection would reach `unhandledRejection` →
@@ -1750,6 +1867,10 @@ export async function fillBalances(
   } catch {
     return;
   }
+  // The displayed-asset catalogue is per-NETWORK — identical for every wallet in
+  // this fill (they all read the account's default network) — so enumerate once.
+  // `displayedAssetsForRead` is self-guarded (never rejects).
+  const displayed = await displayedAssetsForRead(networkSlug);
   const queue = [...walletIds];
 
   const worker = async (): Promise<void> => {
@@ -1758,21 +1879,19 @@ export async function fillBalances(
       const id = queue.shift();
       if (id === undefined) return;
       const wallet = wallets.find((candidate) => candidate.id === id);
-      const address = wallet?.addresses.find(
-        (candidate) => String((candidate.network as { slug: unknown }).slug) === network,
-      );
-      if (address === undefined) {
-        // No address on the default network → an empty (but ready) row.
+      const pubkey = wallet === undefined ? undefined : walletPubkeyForVm(wallet, vm);
+      if (pubkey === undefined) {
+        // No address of the default network's VM → an empty (but ready) row.
         opts.onUpdate(id, { kind: "ready", byAsset: new Map() });
         continue;
       }
       opts.onUpdate(id, { kind: "loading" });
       try {
-        opts.onUpdate(id, await readAddressBalances(address, opts.timeoutMs, opts.signal));
+        opts.onUpdate(id, await readBalancesOnNetwork(network, pubkey, displayed, opts.timeoutMs, opts.signal));
       } catch (error) {
         // Aborted (the optional `signal` fired) → stop this worker, emit nothing
         // for `id` (its caller owns the post-abort state). A real read failure
-        // never reaches here — `readAddressBalances` resolves `error`.
+        // never reaches here — `readBalancesOnNetwork` resolves `error`.
         if (error instanceof BalanceReadAborted) return;
         opts.onUpdate(id, { kind: "error" });
       }
@@ -1798,18 +1917,25 @@ export async function readWalletBalances(
 ): Promise<Extract<WalletBalances, { kind: "ready" | "error" }>> {
   const ws = vault;
   if (ws === undefined || ws.closed || ws.locked) return { kind: "error" };
-  let address: Address | undefined;
+  let network: Network | undefined;
+  let pubkey: string | undefined;
+  let displayed: readonly ReadAsset[] = [];
   try {
     const account = ws.accounts.bySlug(slug as never) ?? undefined;
     if (account === undefined) return { kind: "error" };
-    const network = String(account.defaultNetwork);
+    const networkSlug = String(account.defaultNetwork);
+    network = ws.networks.bySlug(networkSlug as never) ?? undefined;
+    if (network === undefined) return { kind: "ready", byAsset: new Map() };
+    const vm = String((network as { vm?: unknown }).vm);
     const wallet = account.getWalletList(true).find((candidate) => candidate.id === walletId);
-    address = wallet?.addresses.find((candidate) => String((candidate.network as { slug: unknown }).slug) === network);
+    pubkey = wallet === undefined ? undefined : walletPubkeyForVm(wallet, vm);
+    displayed = await displayedAssetsForRead(networkSlug);
   } catch {
     return { kind: "error" };
   }
-  if (address === undefined) return { kind: "ready", byAsset: new Map() };
-  return readAddressBalances(address, opts.timeoutMs, opts.signal);
+  // No same-VM address on the wallet → an empty (ready) row, nothing to read.
+  if (network === undefined || pubkey === undefined) return { kind: "ready", byAsset: new Map() };
+  return readBalancesOnNetwork(network, pubkey, displayed, opts.timeoutMs, opts.signal);
 }
 
 /** Our own nonce-read timeout: the library's internal one is 30s, which would
@@ -1899,24 +2025,32 @@ export async function fillNonces(
   } catch {
     return;
   }
+  // The selected network (the slug the caller passes = the account's default),
+  // resolved ONCE. A nonce is an EVM concept, so a non-EVM or unknown network means
+  // every wallet is `na` (no nonce, no RPC). Reads the wallet's EVM pubkey on THIS
+  // network via the keyless ChainClient — not an Address bound to it.
+  const net = ws.networks.bySlug(network as never) ?? undefined;
+  const isEvm = net !== undefined && String((net as { vm?: unknown }).vm) === "evm";
   const queue = [...walletIds];
 
   const worker = async (): Promise<void> => {
     for (;;) {
       const id = queue.shift();
       if (id === undefined) return;
+      if (!isEvm || net === undefined) {
+        opts.onUpdate(id, { kind: "na" }); // non-EVM / unknown default network → no nonce
+        continue;
+      }
       const wallet = wallets.find((candidate) => candidate.id === id);
-      const address = wallet?.addresses.find(
-        (candidate) => String((candidate.network as { slug: unknown }).slug) === network,
-      );
-      if (address === undefined || String(address.vm) !== "evm") {
-        opts.onUpdate(id, { kind: "na" }); // no EVM address here → no nonce, no RPC
+      const pubkey = wallet === undefined ? undefined : walletPubkeyForVm(wallet, "evm");
+      if (pubkey === undefined) {
+        opts.onUpdate(id, { kind: "na" }); // no EVM address on this wallet → no nonce, no RPC
         continue;
       }
       opts.onUpdate(id, { kind: "loading" });
       try {
-        const client = new ChainClient(address.network);
-        const nonce = await withTimeout(client.getTransactionCount(String(address.publicKey), "pending"), opts.timeoutMs);
+        const client = new ChainClient(net);
+        const nonce = await withTimeout(client.getTransactionCount(pubkey, "pending"), opts.timeoutMs);
         opts.onUpdate(id, { kind: "ready", value: Number(nonce) });
       } catch {
         opts.onUpdate(id, { kind: "error" });
@@ -1942,21 +2076,27 @@ export async function readWalletNonce(
 ): Promise<{ readonly kind: "ready"; readonly value: number } | { readonly kind: "na" } | { readonly kind: "error" }> {
   const ws = vault;
   if (ws === undefined || ws.closed || ws.locked) return { kind: "error" };
-  let address: Address | undefined;
+  let net: Network | undefined;
+  let pubkey: string | undefined;
   try {
     const account = ws.accounts.bySlug(slug as never) ?? undefined;
     if (account === undefined) return { kind: "error" };
+    // The selected network (the slug the caller passes). Nonce is EVM-only → a
+    // non-EVM / unknown network is `na` (no RPC). The wallet's EVM pubkey reads on
+    // THIS network via the keyless ChainClient, not an Address bound to it.
+    net = ws.networks.bySlug(network as never) ?? undefined;
+    if (net === undefined || String((net as { vm?: unknown }).vm) !== "evm") return { kind: "na" };
     const wallet = account.wallets.byId(walletId) ?? undefined;
     if (wallet === undefined) return { kind: "error" };
-    address = wallet.addresses.find((candidate) => String((candidate.network as { slug: unknown }).slug) === network);
+    pubkey = walletPubkeyForVm(wallet, "evm");
   } catch {
     return { kind: "error" };
   }
-  if (address === undefined || String(address.vm) !== "evm") return { kind: "na" };
-  const target = address;
-  const client = new ChainClient(target.network);
+  if (net === undefined || pubkey === undefined) return { kind: "na" }; // no EVM address on this wallet
+  const client = new ChainClient(net);
+  const owner = pubkey;
   try {
-    const nonce = await raceRead({ confirm: () => client.getTransactionCount(String(target.publicKey), "pending"), abort: () => {} }, opts.timeoutMs, opts.signal);
+    const nonce = await raceRead({ confirm: () => client.getTransactionCount(owner, "pending"), abort: () => {} }, opts.timeoutMs, opts.signal);
     return { kind: "ready", value: Number(nonce) };
   } catch (error) {
     if (error instanceof BalanceReadAborted) throw error;

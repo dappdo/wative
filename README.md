@@ -92,6 +92,16 @@ generic `createViewportStore` from `wative/viewport`.
 A static test keeps the package free of any terminal-UI dependency, so a headless
 consumer pulls none in. Mount a UI on `bootstrap`, or run headless — see the examples.
 
+### Switching an account's default network
+
+A wallet holds one address per VM (EVM / SVM), but that address is valid on every
+network of its VM — so an account can operate on any same-VM network, not just the
+one it was created on. `selectableNetworks(slug)` lists those networks (for a
+default-network picker); `setAccountDefaultNetwork(slug, network)` switches the
+default, and `readWalletBalances` / `readWalletNonce` (and the stores) then read on
+it, resolving the wallet's per-VM address on the selected network. `accountNetworks(slug)`
+remains the narrower set the account has an address explicitly bound to.
+
 ## License
 
 MIT

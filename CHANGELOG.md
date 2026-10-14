@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.1.5
+
+### Added
+
+- `selectableNetworks(slug)` on `wative/node/session` — every workspace network
+  whose VM the account has an address for, so a consumer's default-network picker
+  can offer ANY same-VM network, not just the ones the account was derived on.
+  `accountNetworks(slug)` is unchanged (still the narrower set the account has an
+  Address explicitly bound to), for its existing callers.
+
+### Changed
+
+- `readWalletBalances` / `fillBalances` / `readWalletNonce` / `fillNonces` now
+  resolve the wallet's per-VM address and read on the account's (freely-settable)
+  default network via the keyless `ChainClient`, instead of requiring an Address
+  bound to that exact network. An account can therefore switch its default to any
+  same-VM network after creation and have balances/nonce read there — its single
+  per-VM pubkey is valid on every network of that VM. Signatures are unchanged;
+  per-asset `readError` isolation, the worker-pool concurrency bound, and the
+  timeout/abort (`AbortSignal`) semantics are all preserved. The send path is
+  unchanged (a separate follow-up).
+
+Pins `wative-core` 2.5.8. No wative-core change — cross-network reads go through
+the keyless, network-scoped `ChainClient` (the sanctioned path; an `Address` stays
+bound to its creation network in core).
+
 ## 2.1.4
 
 ### Added
