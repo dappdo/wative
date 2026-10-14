@@ -32,6 +32,13 @@ const PRESENT = [
   "/node/container",
   "/core",
   "/core/node",
+  "/browser",
+  "/browser/siwe",
+  "/browser/validators",
+  "/browser/slug",
+  "/browser/secretInput",
+  "/browser/balances",
+  "/browser/nonces",
   "/viewport",
   "/sendMath",
   "/passwordStrength",
@@ -53,6 +60,24 @@ test("the aggregate wative/node barrel re-exports the whole Node surface", async
   const mod = (await import(`${PKG}/node`)) as Record<string, unknown>;
   for (const name of ["bootstrap", "runPreflight", "createWorkspace", "createBalanceStore", "createNonceStore", "inspect", "maskPath"]) {
     assert.equal(typeof mod[name], "function", `wative/node re-exports ${name}`);
+  }
+});
+
+test("the aggregate wative/browser barrel re-exports the portable surface", async () => {
+  const mod = (await import(`${PKG}/browser`)) as Record<string, unknown>;
+  for (const name of [
+    "createViewportStore",
+    "createBalanceStore",
+    "createNonceStore",
+    "buildSiweMessage",
+    "isHexData",
+    "deriveNetworkSlug",
+    "stepSecretInput",
+    "assessPassword",
+    "errorCode",
+    "evmFees",
+  ]) {
+    assert.equal(typeof mod[name], "function", `wative/browser re-exports ${name}`);
   }
 });
 

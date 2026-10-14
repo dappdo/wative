@@ -7,11 +7,10 @@ own interface on it, or drive it headless.
 
 ## Requirements
 
-- **Node.js ≥ 22.12.** The `wative/node` surface uses the filesystem and
-  `wative-core`'s Node provider, so it is Node-only; a pure-browser surface
-  (`wative/browser`) is planned. The portable helpers (`wative/viewport`,
-  `wative/sendMath`, `wative/passwordStrength`, `wative/errors`) already run in
-  either environment.
+- **Node.js ≥ 22.12** for the `wative/node` surface (it uses the filesystem and
+  `wative-core`'s Node provider). The **`wative/browser`** surface and the
+  portable helpers (`wative/viewport`, `wative/sendMath`, `wative/passwordStrength`,
+  `wative/errors`) are dual-env — they run in a browser too.
 
 ## Install
 
@@ -78,6 +77,9 @@ rest is portable):
 | `wative/node/balances` | `createBalanceStore(slug)` — a viewport-aware, cancellable, caching balance loader for large accounts (see below) |
 | `wative/node/nonces` | `createNonceStore(slug, network)` — the same loader for a wallet list's pending-nonce column (EVM-only; off-network wallets load as `na`) |
 | `wative/node/paths` · `wative/node/container` | Node helpers — path masking, the container probe |
+| `wative/browser` | the aggregate PORTABLE (dual-env) surface — viewport scheduler, balance/nonce caching factories (you supply the `read`), the SIWE builder, input validators, slug derivation, the masked-secret input reducer, send math, password strength, error mapping |
+| `wative/browser/siwe` · `wative/browser/validators` · `wative/browser/slug` · `wative/browser/secretInput` | the extracted dual-env kernels (EIP-4361 SIWE message, input-shape validators, network-slug, masked-secret reducer) |
+| `wative/browser/balances` · `wative/browser/nonces` | the portable store factories (inject your own `read`); the Node slug-based conveniences are `wative/node/{balances,nonces}` |
 | `wative/viewport` | `createViewportStore(opts)` — the generic viewport/batch/cancel/cache scheduler the two stores above are built on; parameterise it with your own `read` (portable, dual-env) |
 | `wative/sendMath` · `wative/passwordStrength` · `wative/errors` | portable helpers (chain math, password strength, error messages) — dual-env |
 

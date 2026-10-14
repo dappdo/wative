@@ -1,0 +1,34 @@
+{
+  // Browser-condition typecheck GATE for wative's portable surface.
+  //
+  // The main tsconfig uses `nodenext`, which resolves wative-core's `node` export
+  // condition and pulls in @types/node — so it is BLIND to browser-condition
+  // breakage by construction. This config resolves wative-core's `browser`
+  // condition (customConditions) with NO node types and the DOM lib, so a module
+  // that is supposed to be portable but accidentally imports a Node builtin, uses
+  // the process lifecycle, or pulls a node-only wative-core binding fails HERE.
+  //
+  // Scope: the type-CLEAN portable modules only. The balance/nonce stores are
+  // runtime-portable (their `WalletBalances` import is type-only, erased under
+  // verbatimModuleSyntax), but that type still resolves THROUGH the Node-only
+  // `session` module, which cannot type-check under the browser condition — so the
+  // stores are covered by runtime resolution (test/node-exports.test.ts), not this
+  // type gate.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": [],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "customConditions": ["browser"]
+  },
+  "include": [
+    "src/core/viewportStore.ts",
+    "src/core/sendMath.ts",
+    "src/core/passwordStrength.ts",
+    "src/core/errors.ts",
+    "src/core/siwe.ts",
+    "src/core/validators.ts",
+    "src/core/slug.ts",
+    "src/core/secretInput.ts"
+  ]
+}

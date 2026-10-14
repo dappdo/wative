@@ -28,6 +28,18 @@ Rewrite these imports:
 
 ### Added
 
+- **`wative/browser`** — the aggregate PORTABLE (dual-env) surface, plus focused
+  subpaths `wative/browser/{siwe,validators,slug,secretInput,balances,nonces}`.
+  Pure interaction kernels (the EIP-4361 SIWE message builder, input-shape
+  validators, network-slug derivation, the masked-secret input reducer) were
+  extracted out of the Node modules into dual-env modules; `wative/node/*`
+  re-exports them, so its surface is unchanged. The balance/nonce stores were
+  split into a portable injected-reader factory (`wative/browser/{balances,nonces}`)
+  and the Node slug-based convenience (`wative/node/{balances,nonces}`, API
+  unchanged). The root `.` gains a `browser` export condition so `import "wative"`
+  resolves to the portable surface in a browser bundler. A `tsconfig.browser.json`
+  gate (wired into `verify`) typechecks the portable surface under the browser
+  condition so a Node leak can't compile green.
 - **`wative/node`** — an aggregate barrel that re-exports the whole Node surface
   (bootstrap, preflight, session, balances, nonces, paths, container) in one
   import, alongside the focused `wative/node/*` subpaths.

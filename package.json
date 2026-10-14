@@ -12,8 +12,14 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "browser": {
+        "types": "./dist/browserIndex.d.ts",
+        "default": "./dist/browserIndex.js"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     },
     "./core": {
       "types": "./dist/corePassthrough.d.ts",
@@ -55,6 +61,34 @@
       "types": "./dist/core/container.d.ts",
       "default": "./dist/core/container.js"
     },
+    "./browser": {
+      "types": "./dist/browserIndex.d.ts",
+      "default": "./dist/browserIndex.js"
+    },
+    "./browser/siwe": {
+      "types": "./dist/core/siwe.d.ts",
+      "default": "./dist/core/siwe.js"
+    },
+    "./browser/validators": {
+      "types": "./dist/core/validators.d.ts",
+      "default": "./dist/core/validators.js"
+    },
+    "./browser/slug": {
+      "types": "./dist/core/slug.d.ts",
+      "default": "./dist/core/slug.js"
+    },
+    "./browser/secretInput": {
+      "types": "./dist/core/secretInput.d.ts",
+      "default": "./dist/core/secretInput.js"
+    },
+    "./browser/balances": {
+      "types": "./dist/core/balanceStore.d.ts",
+      "default": "./dist/core/balanceStore.js"
+    },
+    "./browser/nonces": {
+      "types": "./dist/core/nonceStore.d.ts",
+      "default": "./dist/core/nonceStore.js"
+    },
     "./viewport": {
       "types": "./dist/core/viewportStore.d.ts",
       "default": "./dist/core/viewportStore.js"
@@ -86,8 +120,9 @@
     "build": "tsc -p tsconfig.build.json",
     "prepare": "pnpm run build",
     "typecheck": "tsc --noEmit",
+    "typecheck:browser": "tsc -p tsconfig.browser.json",
     "test": "node --import tsx --test --test-timeout=30000 --test-force-exit test/*.test.ts",
-    "verify": "pnpm run typecheck && pnpm run build && pnpm run test"
+    "verify": "pnpm run typecheck && pnpm run typecheck:browser && pnpm run build && pnpm run test"
   },
   "dependencies": {
     "wative-core": "2.5.7"
