@@ -1,6 +1,6 @@
 {
   "name": "wative",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "A Node.js toolkit for scaffolding wallet-dispatch applications leveraging wative-core.",
   "license": "MIT",
   "repository": {

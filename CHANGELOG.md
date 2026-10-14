@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.4
+
+### Added
+
+- Crypto-correctness test coverage for the `wative/node/session` export + sign
+  wrappers (EVM and SVM): `exportPrivateKey` returns the key matching the wallet's
+  public key, `signMessage` recovers/verifies to the wallet, and a wrong password
+  is refused with no key leak. `ethers` / `bs58` / `tweetnacl` added as
+  devDependencies for the tests.
+
+No runtime or API change from 2.1.3 — this release only adds test coverage (and
+test-only devDependencies); the shipped surface (`dist/`) is identical.
+
 ## 2.1.3
 
 ### Changed — wative's Node-only surface moved under `wative/node/*`
