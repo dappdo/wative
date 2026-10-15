@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       wative-core:
-        specifier: 2.5.8
-        version: 2.5.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+        specifier: 2.5.9
+        version: 2.5.9(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -619,8 +619,8 @@ packages:
     deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
-  wative-core@2.5.8:
-    resolution: {integrity: sha512-E9y/zXZjsqpyZ+SvLXKhqXrLvaQZA9E9nY8pv7nz3rDTO4qBtevY5COKSmbFgpTbGDvg5XpTo99auwFEcAFo0g==}
+  wative-core@2.5.9:
+    resolution: {integrity: sha512-SKVQR3Uz+gIBtYU5Y9PQH84VzGXtt5lKo38CVavmu6IU3GD8TZdNMOKb4UbQGDrgwvcc71u+4az+QZz/oUEwMg==}
     engines: {node: '>=22.12'}
 
   webidl-conversions@3.0.1:
@@ -1210,7 +1210,7 @@ snapshots:
 
   uuid@8.3.2: {}
 
-  wative-core@2.5.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6):
+  wative-core@2.5.9(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6):
     dependencies:
       '@coral-xyz/anchor': 0.30.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@noble/ciphers': 2.4.0
