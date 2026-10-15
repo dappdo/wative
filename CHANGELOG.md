@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.6
+
+### Changed
+
+- Pins `wative-core` 2.5.9 (was 2.5.8) — the "Model 2" storage refactor: built-in
+  networks and assets are persisted as a tagged id/slug plus a sparse override
+  rather than full copies, and legacy flat `NETWORK`/`ASSET` records auto-migrate
+  on first workspace open. The public collection APIs are byte-identical.
+
+No wative source or API change — this release only moves the dependency pin to
+`wative-core` 2.5.9.
+
 ## 2.1.5
 
 ### Added

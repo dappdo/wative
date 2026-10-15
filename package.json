@@ -1,6 +1,6 @@
 {
   "name": "wative",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "A ready-to-use toolkit for scaffolding wallet-dispatch applications leveraging wative-core.",
   "license": "MIT",
   "repository": {
