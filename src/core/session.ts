@@ -1512,10 +1512,17 @@ export async function catalogueFor(slug: string): Promise<readonly AssetColumn[]
  * `symbol`), parse the amount (`decimals`), read the MAX balance (`address`),
  * and mark the native coin. */
 export interface SendAsset {
+  /** The workspace asset id — the key a per-asset balance read (`readWalletBalances`
+   * → `byAsset`) is keyed by, so a consumer can correlate a balance to its row. */
+  readonly id: number;
   readonly symbol: string;
   readonly name: string;
   readonly decimals: number;
   readonly native: boolean;
+  /** Registry-provided (native coin + built-in tokens) vs a user-added token —
+   * `Asset.isBuiltin`. A consumer can label the asset's provenance without a
+   * trial drop (the library is otherwise the only authority on removability). */
+  readonly builtin: boolean;
   /** The ERC-20 contract / SPL mint; null for the native coin. */
   readonly address: string | null;
 }
@@ -1543,10 +1550,12 @@ export async function assetsForNetwork(slug: string, networkSlug: string): Promi
   return assets
     .filter((asset) => asset.displayStatus)
     .map((asset) => ({
+      id: Number(asset.id),
       symbol: String(asset.symbol),
       name: String(asset.name),
       decimals: Number(asset.decimals),
       native: asset.native === true,
+      builtin: asset.isBuiltin === true,
       address: asset.contractAddress === null ? null : String(asset.contractAddress),
     }))
     .sort((a, b) => (a.native === b.native ? 0 : a.native ? -1 : 1)); // native coin first
