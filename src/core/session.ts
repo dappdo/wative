@@ -2265,6 +2265,16 @@ export interface SendIntent {
   readonly amount: bigint;
   readonly acknowledgeUnsafe?: boolean;
   /**
+   * The network to send ON. An account holds ONE key per VM, valid on every
+   * same-VM network, so a send can target any same-VM network — not only the
+   * address's creation network. Omitted (or the creation network's slug) → the
+   * creation network, unchanged. A slug of a DIFFERENT VM is refused (a mis-route):
+   * see {@link resolveSendNetwork}. The chosen network's chainId (EVM, EIP-155) /
+   * cluster RPC (SVM) is what binds the signed tx to that chain — the fund-safety
+   * guarantee that a send cannot execute on a chain the user did not pick.
+   */
+  readonly network?: string;
+  /**
    * RAW-CALL mode (EVM only): sign `to` + `amount` (as the native value) + this
    * exact calldata directly, bypassing the transfer lowering. When present the
    * tx is NOT a transfer — `asset` is ignored, no transfer payload is built, and
@@ -2272,6 +2282,38 @@ export interface SendIntent {
    * `0x` (or empty) means a plain value call with no calldata.
    */
   readonly raw?: { readonly data: string };
+}
+
+/**
+ * The network a send targets, resolved for fund safety from the intent's chosen
+ * network and the sender address:
+ *  - omitted / empty / the creation network's own slug → the creation network;
+ *  - a known same-VM network → that network (the key is valid on it);
+ *  - an UNKNOWN slug → the creation network (safe default — never a chain the user
+ *    cannot see);
+ *  - a known network of a DIFFERENT VM → `undefined`, so the caller REFUSES the
+ *    send. Never silently route a cross-VM pick to the creation network: the user
+ *    picked a chain, and sending somewhere else moves funds they did not intend.
+ *
+ * The returned network's `chainId` (EVM) / `rpcUrl` (both VMs) is what the send
+ * path threads into `buildTransaction`, binding the signed tx to that chain.
+ */
+function resolveSendNetwork(address: Address, vm: "evm" | "svm", want: string | undefined): Network | undefined {
+  const creation = address.network;
+  if (want === undefined || want === "" || want === String((creation as { slug: unknown }).slug)) return creation;
+  const ws = vault;
+  const chosen = ws === undefined || ws.closed || ws.locked ? null : (ws.networks.bySlug(want as never) ?? null);
+  if (chosen === null) return creation; // unknown slug → the safe default
+  if (String((chosen as { vm?: unknown }).vm) !== vm) return undefined; // cross-VM → refuse
+  return chosen;
+}
+
+/** The chosen network's EVM build fields for `buildTransaction`, so the tx is
+ * signed for THAT chain (`chainId` → EIP-155 replay-binding) and built/broadcast
+ * against its RPC rather than the sender address's creation network. `net.chainId`
+ * is the library's branded `ChainId`, passed through as-is. */
+function evmNetworkParams(net: Network): { readonly chainId: Network["chainId"]; readonly rpcUrl: string } {
+  return { chainId: net.chainId, rpcUrl: net.rpcUrl };
 }
 
 // isHexData (+ the HEX_DATA regex): extracted to ./validators.js (re-exported near the top).
@@ -2486,6 +2528,10 @@ export async function prepareSend(intent: SendIntent): Promise<PreparedSend> {
   // the transfer lowering (and its offline refuse-tier throw). The destination
   // screen still runs but is advisory — the UI does not block on it in raw mode.
   if (intent.vm === "evm" && intent.raw !== undefined) return prepareRawEvm(address, intent, intent.raw.data);
+  // The network to send ON (default-network switching): the picked same-VM network,
+  // or the address's creation network. `undefined` = a cross-VM pick → refuse.
+  const network = resolveSendNetwork(address, intent.vm, intent.network);
+  if (network === undefined) return { ok: false, reason: "That network can't be used to send from this wallet.", overridable: false };
   const lowered = lowerTransfer(address, intent);
   if (!lowered.ok) return lowered;
   const payload = lowered.payload;
@@ -2494,15 +2540,17 @@ export async function prepareSend(intent: SendIntent): Promise<PreparedSend> {
   if (payload.vm === "svm") {
     // SVM: prefill the recent blockhash (so the review is concrete and sign stays
     // offline); the compute budget auto-defaults. No gas/nonce — the review shows
-    // the blockhash + simulate + destination.
+    // the blockhash + simulate + destination. Built/read against the CHOSEN
+    // cluster's RPC (`rpcUrl`), not the address's creation cluster.
     try {
-      const client = new ChainClient(address.network);
+      const client = new ChainClient(network);
       const { blockhash } = await client.getRecentBlockhash();
       const tx = address.buildTransaction({
         recipient: payload.recipient,
         amount: payload.amount,
         instructions: payload.instructions,
         recentBlockhash: blockhash,
+        rpcUrl: network.rpcUrl,
       });
       const sim = await tx.simulate();
       const report = await address.checkDestination(screenReq);
@@ -2511,9 +2559,9 @@ export async function prepareSend(intent: SendIntent): Promise<PreparedSend> {
         ok: true,
         vm: "svm",
         type,
-        chainId: Number(address.network.chainId),
+        chainId: Number(network.chainId),
         from: String(address.publicKey),
-        nativeSymbol: String(address.network.nativeCurrency.symbol),
+        nativeSymbol: String(network.nativeCurrency.symbol),
         nativeBalance: balances.native,
         tokenBalance: balances.token,
         recipient: payload.recipient,
@@ -2528,7 +2576,8 @@ export async function prepareSend(intent: SendIntent): Promise<PreparedSend> {
     }
   }
   try {
-    const network = address.network;
+    // `network` is the resolved send network (above) — the picked same-VM network
+    // or the creation network; NOT re-read from the address here.
     const client = new ChainClient(network);
     const chainId = Number(network.chainId);
     const nonce = await client.getTransactionCount(String(address.publicKey), "pending");
@@ -2566,8 +2615,10 @@ export async function prepareSend(intent: SendIntent): Promise<PreparedSend> {
       to: payload.to,
       value: payload.value,
       data: payload.data,
-      // chainId is taken from the sender address's own network (the doc's
-      // build-from-address path), so it is not passed here.
+      // Bind the tx to the CHOSEN network's chain (chainId → EIP-155) and build/
+      // broadcast against its RPC, so a send on a switched default network cannot
+      // execute on the address's creation chain.
+      ...evmNetworkParams(network),
       type: 2,
       nonce,
       maxFeePerGas,
@@ -2618,15 +2669,16 @@ export async function prepareSend(intent: SendIntent): Promise<PreparedSend> {
  */
 async function prepareRawEvm(address: Address, intent: SendIntent, data: string): Promise<PreparedSend> {
   if (!isHexData(data)) return { ok: false, reason: "Data must be 0x-prefixed hex with an even number of digits.", code: "PARAMETER_ERROR", overridable: false };
+  const network = resolveSendNetwork(address, intent.vm, intent.network);
+  if (network === undefined) return { ok: false, reason: "That network can't be used to send from this wallet.", code: "PARAMETER_ERROR", overridable: false };
   try {
-    const network = address.network;
     const client = new ChainClient(network);
     const chainId = Number(network.chainId);
     const nonce = await client.getTransactionCount(String(address.publicKey), "pending");
     const gasPrice = await client.getGasPrice();
     const maxPriorityFeePerGas = TIP_FLOOR_WEI;
     const maxFeePerGas = gasPrice > maxPriorityFeePerGas ? gasPrice : maxPriorityFeePerGas;
-    const tx = address.buildTransaction({ to: intent.to, value: intent.amount, data, type: 2, nonce, maxFeePerGas, maxPriorityFeePerGas });
+    const tx = address.buildTransaction({ to: intent.to, value: intent.amount, data, ...evmNetworkParams(network), type: 2, nonce, maxFeePerGas, maxPriorityFeePerGas });
     const sim = await tx.simulate();
     // estimate ×1.2 (a raw call's gas varies), but never below the 21000 intrinsic
     // — a node can estimate under 21000 (measured on Sepolia for an existing-
@@ -2673,6 +2725,10 @@ export interface MaxSendableParams {
   readonly accountSlug: string;
   readonly walletId: number;
   readonly vm: "evm" | "svm";
+  /** The network to compute MAX on (default-network switching). Same semantics as
+   * {@link SendIntent.network}: omitted = the creation network; a cross-VM slug is
+   * refused. The balance + gas reserve are read on THIS network. */
+  readonly network?: string;
   /** ERC-20 contract / SPL mint. Omitted = the native coin. */
   readonly token?: string;
   /** EVM native only: the recipient, so the real gas can be ESTIMATED (a send to
@@ -2699,8 +2755,10 @@ export type MaxSendable = { readonly ok: true; readonly amount: bigint } | { rea
 export async function maxSendable(params: MaxSendableParams): Promise<MaxSendable> {
   const address = senderAddress(params.accountSlug, params.walletId, params.vm);
   if (address === undefined) return { ok: false, reason: "That wallet is unavailable." };
+  const network = resolveSendNetwork(address, params.vm, params.network);
+  if (network === undefined) return { ok: false, reason: "That network can't be used to send from this wallet." };
   try {
-    const client = new ChainClient(address.network);
+    const client = new ChainClient(network);
     const from = String(address.publicKey);
     if (params.token !== undefined) {
       return { ok: true, amount: await client.readBalance(from, params.token) };
@@ -2731,7 +2789,7 @@ export async function maxSendable(params: MaxSendableParams): Promise<MaxSendabl
       gasLimit = 21_000n;
       if (params.to !== undefined) {
         try {
-          const tx = address.buildTransaction({ to: params.to, value: 1n, data: "0x", type: 2, maxFeePerGas, maxPriorityFeePerGas: TIP_FLOOR_WEI });
+          const tx = address.buildTransaction({ to: params.to, value: 1n, data: "0x", ...evmNetworkParams(network), type: 2, maxFeePerGas, maxPriorityFeePerGas: TIP_FLOOR_WEI });
           const sim = await tx.simulate();
           if (sim.success && sim.gasUsed !== undefined && sim.gasUsed > gasLimit) gasLimit = sim.gasUsed;
         } catch {
@@ -2817,6 +2875,10 @@ export async function confirmSend(
 ): Promise<SendOutcome> {
   const address = senderAddress(intent.accountSlug, intent.walletId, intent.vm);
   if (address === undefined) return { ok: false, status: "unsent", reason: "That wallet is unavailable.", hash: null, safeToResend: false };
+  // The network to send ON — the picked same-VM network or the creation network.
+  // `undefined` = a cross-VM pick; refuse BEFORE building/signing (a mis-route).
+  const network = resolveSendNetwork(address, intent.vm, intent.network);
+  if (network === undefined) return { ok: false, status: "unsent", reason: "That network can't be used to send from this wallet.", hash: null, safeToResend: false };
 
   // RAW-CALL mode (EVM only): sign the explicit to/value/data directly. No
   // re-lower, so the transfer-only refuse gate never runs — raw mode is the
@@ -2831,6 +2893,7 @@ export async function confirmSend(
         to: intent.to,
         value: intent.amount,
         data: rawData,
+        ...evmNetworkParams(network), // bind to the chosen chain (EIP-155) + its RPC
         type: 2,
         nonce: overrides.nonce,
         gasLimit: overrides.gasLimit,
@@ -2853,6 +2916,7 @@ export async function confirmSend(
               to: payload.to,
               value: payload.value,
               data: payload.data,
+              ...evmNetworkParams(network), // bind to the chosen chain (EIP-155) + its RPC
               type: 2,
               nonce: overrides.nonce,
               gasLimit: overrides.gasLimit,
@@ -2860,8 +2924,9 @@ export async function confirmSend(
               maxPriorityFeePerGas: overrides.maxPriorityFeePerGas,
             })
           : // SVM: the EVM fee overrides don't apply; the compute budget auto-
-            // defaults and the recent blockhash is fetched at sign.
-            address.buildTransaction({ recipient: payload.recipient, amount: payload.amount, instructions: payload.instructions });
+            // defaults and the recent blockhash is fetched at sign — against the
+            // CHOSEN cluster's RPC.
+            address.buildTransaction({ recipient: payload.recipient, amount: payload.amount, instructions: payload.instructions, rpcUrl: network.rpcUrl });
     } catch (error) {
       return { ok: false, status: "unsent", reason: safeMessage(error), hash: null, safeToResend: false };
     }
