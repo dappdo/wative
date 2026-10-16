@@ -26,6 +26,13 @@ export interface BalanceStoreOptions {
   readonly batchDelayMs?: number;
   /** Per-read timeout passed to the default reader, ms (default 12000). */
   readonly timeoutMs?: number;
+  /** Bind the default reader to THIS network instead of the account's current
+   * default. The keyless cross-network read means a store can be pinned to a
+   * FIXED network, so a consumer can keep one store per network and recall its
+   * cache after a default-network switch. Omit to read the current default (the
+   * unchanged 2.1.x behaviour). Ignored when `read` is overridden — a custom
+   * reader binds its own network. */
+  readonly network?: string;
   /** Override the per-wallet read (tests / alternative backends). */
   readonly read?: BalanceReader;
   /** Override the inter-batch delay (tests). */
@@ -33,11 +40,13 @@ export interface BalanceStoreOptions {
 }
 
 /** Create a balance store for one account `slug`. The default reader reads each
- * wallet's DEFAULT-network balances over RPC; override it with `read` (which is
- * how the scheduler is tested). The real network read is exercised by the
- * consumer's integration tests. */
+ * wallet's balances over RPC — on `options.network` when given, else the
+ * account's current default; override it with `read` (which is how the scheduler
+ * is tested). The real network read is exercised by the consumer's integration
+ * tests. */
 export function createBalanceStore(slug: string, options: BalanceStoreOptions = {}): BalanceStore {
   const timeoutMs = options.timeoutMs ?? 12_000;
-  const read: BalanceReader = options.read ?? ((id, signal) => readWalletBalances(slug, id, { timeoutMs, signal }));
+  const network = options.network;
+  const read: BalanceReader = options.read ?? ((id, signal) => readWalletBalances(slug, id, { timeoutMs, signal, network }));
   return createPortableBalanceStore({ read, batchSize: options.batchSize, batchDelayMs: options.batchDelayMs, sleep: options.sleep });
 }

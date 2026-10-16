@@ -213,6 +213,11 @@ export async function unlock(password: string): Promise<void> {
   if (ws === undefined) throw new Error("no workspace is open");
   await yieldForPaint();
   await ws.unlock(password);
+  // Migration: a custom network added by an older build never materialized its
+  // native coin as an asset, so its grid showed no native-currency column.
+  // Reconcile once per unlock (guarded — never blocks the unlock). New custom
+  // networks get theirs at `addNetwork` time; this repairs the pre-existing ones.
+  await reconcileNativeAssets(ws);
 }
 
 /** A user-initiated lock, which can afford to await. */
@@ -934,6 +939,15 @@ export async function dropNetwork(slug: string): Promise<AccountMutation> {
   try {
     const network = ws.networks.bySlug(slug as never);
     if (network === null) return { ok: false, reason: "That network is unavailable." };
+    // 🚨 The library refuses to drop a network that still has assets
+    // (`UNSUPPORTED_OP: … Drop the asset first`), and a custom network always
+    // carries at least its materialized native coin (see `ensureNativeAsset`), so
+    // clear its assets first. This is a CUSTOM network (built-ins are guarded
+    // above and keep their registry assets), so every asset on it is user/CLI-
+    // owned and droppable. Snapshot the collection before mutating it.
+    for (const asset of [...network.assets]) {
+      await network.assets.drop(asset.id);
+    }
     await ws.networks.drop(network);
     return { ok: true };
   } catch (error) {
@@ -1187,11 +1201,74 @@ export interface NetworkInput {
   readonly chainId: number;
   readonly rpcUrl: string;
   readonly vm: "evm" | "svm";
-  readonly currencyName: string;
+  /** The native coin's display name. OPTIONAL: the symbol is the only identity a
+   * consumer must collect; when this is omitted (or blank) the symbol stands in
+   * for the name, so an add-network form need not ask for it. */
+  readonly currencyName?: string;
   readonly currencySymbol: string;
   readonly currencyDecimals: number;
   readonly multicallAddress?: string;
   readonly color?: string;
+}
+
+/**
+ * Materialize a network's native coin as a displayed {@link Asset} when it has
+ * none — so a consumer's balance grid shows a native-currency column and reads a
+ * native balance for it.
+ *
+ * 🚨 Why this is needed: a BUILT-IN network gets its native coin (and known
+ * tokens) from the library's asset registry, but a user-added CUSTOM network gets
+ * NOTHING — not even its own native coin — so `ws.assets(slug)` is empty and the
+ * grid's native column (and its balance read, both driven by that catalogue)
+ * silently vanish. A null `contractAddress` is exactly what the library reads as
+ * "the gas coin": it sets the asset's `native` flag and allocates the id (user ids
+ * start at 1000 since 2.5.7). `displayStatus: true` makes it a shown column. It is
+ * the sole asset on a fresh custom network, so native-first ordering puts it at
+ * index 0 with no `move`.
+ *
+ * Idempotent and fully guarded: a network that already carries a native asset, a
+ * symbol-less currency, or ANY thrown error is a silent no-op — a missing native
+ * column is a display gap, never a reason to fail network creation or block an
+ * unlock.
+ */
+async function ensureNativeAsset(ws: Workspace, network: Network): Promise<void> {
+  try {
+    const existing = await ws.assets(network.slug);
+    if (existing.some((asset) => asset.native === true)) return;
+    const currency = network.nativeCurrency;
+    const symbol = String(currency.symbol).trim();
+    if (symbol === "") return;
+    await network.assets.add({
+      symbol,
+      name: String(currency.name).trim() || symbol,
+      decimals: Number(currency.decimals),
+      contractAddress: null,
+      displayStatus: true,
+    } as never);
+  } catch {
+    // Non-fatal — see the doc above. A reconcile/materialize failure must never
+    // take down an unlock or a network-creation.
+  }
+}
+
+/**
+ * Back-fill the native coin for every CUSTOM network missing one — the migration
+ * half of {@link ensureNativeAsset}, run once per unlock. Built-in networks are
+ * skipped (they already carry their native asset from the registry, and a read
+ * per built-in on every unlock is wasted work). So a custom network added by an
+ * OLDER build — whose native coin was never materialized — self-heals the first
+ * time the workspace is unlocked, without the user re-adding it. Fully guarded:
+ * one network's failure never blocks the unlock or the rest of the pass.
+ */
+async function reconcileNativeAssets(ws: Workspace): Promise<void> {
+  try {
+    for (const network of ws.networks) {
+      if (Network.isBuiltinSlug(network.slug)) continue;
+      await ensureNativeAsset(ws, network);
+    }
+  } catch {
+    // Guarded: a migration pass must never break an unlock.
+  }
 }
 
 /**
@@ -1207,16 +1284,21 @@ export interface NetworkInput {
 export async function addNetwork(input: NetworkInput): Promise<AccountMutation> {
   const ws = vault;
   if (ws === undefined || ws.closed) return { ok: false, reason: "The workspace is closed." };
+  // The symbol is the native coin's only required identity; its name is optional
+  // and falls back to the symbol (a consumer's form need not ask for it).
+  const currencySymbol = input.currencySymbol.trim();
+  const currencyName = (input.currencyName ?? "").trim() || currencySymbol;
+  const slug = finalizeNetworkSlug(input.name, input.chainId);
   try {
     await ws.networks.add(
       new Network({
-        slug: finalizeNetworkSlug(input.name, input.chainId) as never,
+        slug: slug as never,
         name: input.name.trim(),
         chainId: input.chainId as never,
         rpcUrl: input.rpcUrl.trim(),
         nativeCurrency: {
-          name: input.currencyName.trim(),
-          symbol: input.currencySymbol.trim(),
+          name: currencyName,
+          symbol: currencySymbol,
           decimals: input.currencyDecimals,
         },
         ...(input.multicallAddress !== undefined && input.multicallAddress.trim() !== ""
@@ -1226,10 +1308,17 @@ export async function addNetwork(input: NetworkInput): Promise<AccountMutation> 
         vm: input.vm,
       } as never),
     );
-    return { ok: true };
   } catch (error) {
     return { ok: false, reason: safeMessage(error) };
   }
+  // Materialize the native coin as a displayed asset so the new network shows a
+  // native-currency column and reads a native balance from the start. Guarded and
+  // AFTER the ok path: the network was created regardless; a failed native
+  // materialization is a recoverable display gap (reconciled on the next unlock),
+  // not a reason to report the add as failed.
+  const created = ws.networks.bySlug(slug as never);
+  if (created !== null) await ensureNativeAsset(ws, created);
+  return { ok: true };
 }
 
 /**
@@ -1371,8 +1460,10 @@ export interface AssetColumn {
  * it is async and throws `UNSUPPORTED_NETWORK` for an unknown slug — so the
  * default network is null-checked first. (2.5.7 also exposes `network.assets` as
  * a live editable collection, but a flat read is all the grid needs here.) A
- * custom network starts with an empty catalogue; built-ins carry the native +
- * known tokens. `displayStatus` is mutable and persistable in 2.5.7 (`asset.save`
+ * built-in network carries its native coin + known tokens from the library's
+ * registry; a custom network carries just its native coin, materialized by
+ * `addNetwork` (or reconciled on unlock — see `ensureNativeAsset`), plus any
+ * tokens the user adds. `displayStatus` is mutable and persistable in 2.5.7 (`asset.save`
  * / `updateAsset`), but this only READS it — the show/hide override lives in a
  * consumer's own preferences, outside this package, deliberately global across
  * workspaces.
@@ -1834,6 +1925,12 @@ export async function fillBalances(
      * slots) and emit NOTHING for their wallet; `fillBalances` then RESOLVES
      * (never rejects — its callers are catch-less `void`). */
     readonly signal?: AbortSignal;
+    /** Read on THIS network instead of the account's current default. The
+     * keyless {@link ChainClient} reads the wallet's per-VM pubkey on any
+     * same-VM network, so a consumer can bind a read to a FIXED network
+     * (per-network caching) rather than "whatever the default is now". Omit to
+     * read the account's default (the unchanged behaviour). */
+    readonly network?: string;
   },
 ): Promise<void> {
   const ws = vault;
@@ -1845,7 +1942,7 @@ export async function fillBalances(
   // address rejects, which the worker catches and reports as an `error` cell —
   // a balance window never triggers an unlock.
   if (account === undefined) return;
-  const networkSlug = String(account.defaultNetwork);
+  const networkSlug = opts.network ?? String(account.defaultNetwork);
   // 🚨 The selected (default) network resolved to a Network — balances read the
   // wallet's per-VM pubkey on THIS network via the keyless ChainClient, no longer
   // requiring an Address bound to it (default-network switching). An unknown
@@ -1913,7 +2010,7 @@ export async function fillBalances(
 export async function readWalletBalances(
   slug: string,
   walletId: number,
-  opts: { readonly timeoutMs: number; readonly signal?: AbortSignal },
+  opts: { readonly timeoutMs: number; readonly signal?: AbortSignal; readonly network?: string },
 ): Promise<Extract<WalletBalances, { kind: "ready" | "error" }>> {
   const ws = vault;
   if (ws === undefined || ws.closed || ws.locked) return { kind: "error" };
@@ -1923,7 +2020,10 @@ export async function readWalletBalances(
   try {
     const account = ws.accounts.bySlug(slug as never) ?? undefined;
     if (account === undefined) return { kind: "error" };
-    const networkSlug = String(account.defaultNetwork);
+    // Read on the EXPLICIT network when the caller bound this store to one
+    // (per-network caching reads a FIXED network, not the live default); else
+    // the account's current default — the unchanged behaviour.
+    const networkSlug = opts.network ?? String(account.defaultNetwork);
     network = ws.networks.bySlug(networkSlug as never) ?? undefined;
     if (network === undefined) return { kind: "ready", byAsset: new Map() };
     const vm = String((network as { vm?: unknown }).vm);
