@@ -1,6 +1,6 @@
 {
   "name": "wative",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "description": "A ready-to-use toolkit for scaffolding wallet-dispatch applications leveraging wative-core.",
   "license": "MIT",
   "repository": {
@@ -126,7 +126,7 @@
     "verify": "pnpm run typecheck && pnpm run typecheck:browser && pnpm run build && pnpm run smoke:browser && pnpm run test"
   },
   "dependencies": {
-    "wative-core": "2.5.9"
+    "wative-core": "2.6.1"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
